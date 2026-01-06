@@ -70,6 +70,7 @@ function App() {
   const [isVaultLocked, setIsVaultLocked] = useState(false);
   const [vaultEncryptedData, setVaultEncryptedData] = useState<string | null>(null);
   const [vaultPasswordInput, setVaultPasswordInput] = useState('');
+  const [showVaultPassword, setShowVaultPassword] = useState(false); // Novo estado para visibilidade da senha
   const [vaultError, setVaultError] = useState('');
   const [checkingVault, setCheckingVault] = useState(true);
   
@@ -548,14 +549,26 @@ function App() {
                         Detectamos um cofre digital. Digite sua senha para liberar o uso das APIs.
                     </p>
                     <form onSubmit={handleUnlockVault} className="flex flex-col gap-4">
-                        <input 
-                            autoFocus
-                            type="password" 
-                            placeholder="Senha do Cofre"
-                            value={vaultPasswordInput}
-                            onChange={(e) => setVaultPasswordInput(e.target.value)}
-                            className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-black/20 text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500/50 outline-none transition-all"
-                        />
+                        <div className="relative">
+                            <input 
+                                autoFocus
+                                type={showVaultPassword ? "text" : "password"} 
+                                placeholder="Senha do Cofre"
+                                value={vaultPasswordInput}
+                                onChange={(e) => setVaultPasswordInput(e.target.value)}
+                                className="w-full pl-4 pr-10 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-black/20 text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500/50 outline-none transition-all"
+                            />
+                            <button 
+                                type="button"
+                                onClick={() => setShowVaultPassword(!showVaultPassword)}
+                                className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 focus:outline-none"
+                                tabIndex={-1}
+                            >
+                                <span className="material-symbols-outlined text-xl">
+                                    {showVaultPassword ? 'visibility_off' : 'visibility'}
+                                </span>
+                            </button>
+                        </div>
                         {vaultError && <p className="text-red-500 text-xs font-bold">{vaultError}</p>}
                         <button 
                             type="submit"
