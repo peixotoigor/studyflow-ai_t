@@ -76,6 +76,9 @@ function App() {
   // Auto-Save State (SYNCING = Baixando, SAVING = Subindo)
   const [syncState, setSyncState] = useState<'IDLE' | 'SAVING' | 'SAVED' | 'ERROR' | 'SYNCING'>('IDLE');
   
+  // Flag para evitar loop de save ao restaurar
+  const isRestoring = useRef(false);
+
   // --- User State Management ---
   const [user, setUser] = useState<UserProfile>(() => {
     if (typeof window !== 'undefined') {
@@ -247,6 +250,7 @@ function App() {
   useEffect(() => {
       // Só salva se tiver token e ID
       if (!user.githubToken || !user.backupGistId || isVaultLocked) return;
+      if (isRestoring.current) return; // Evita salvar se estiver restaurando (loop prevention)
 
       if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
 
@@ -260,7 +264,7 @@ function App() {
       return () => {
           if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
       };
-  }, [subjects, plans, errorLogs, simulatedExams, savedNotes, currentPlanId]);
+  }, [subjects, plans, errorLogs, simulatedExams, savedNotes, currentPlanId, user]); // User adicionado às dependências
 
   const performAutoSave = async () => {
       try {
@@ -274,7 +278,7 @@ function App() {
               plans,
               currentPlanId,
               errors: errorLogs,
-              // Não envia chaves API
+              // Não envia chaves API, mas envia nome e avatar
               user: { ...user, githubToken: undefined, openAiApiKey: undefined }, 
               simulatedExams,
               savedNotes,
@@ -311,6 +315,7 @@ function App() {
 
   const handleRestoreData = async (gistId: string, token: string, silent = false) => {
         try {
+            isRestoring.current = true; // Seta flag para bloquear auto-save
             if (silent) setSyncState('SYNCING');
 
             const response = await fetch(`https://api.github.com/gists/${gistId}`, {
@@ -357,6 +362,9 @@ function App() {
             console.error("Restore error:", e);
             if (!silent) alert("Erro ao restaurar dados: " + e.message);
             setSyncState('ERROR');
+        } finally {
+            // Libera o auto-save após um breve período
+            setTimeout(() => { isRestoring.current = false; }, 2000);
         }
   };
 
