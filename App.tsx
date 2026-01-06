@@ -213,6 +213,7 @@ function App() {
                   if (sessionPass) {
                       try {
                           const decryptedData = await decryptVault(encryptedData, sessionPass);
+                          // Atualiza user com as chaves
                           setUser(prev => ({
                               ...prev,
                               openAiApiKey: decryptedData.openAiApiKey || prev.openAiApiKey,
@@ -223,11 +224,9 @@ function App() {
                           setCheckingVault(false);
                           return;
                       } catch (e) {
-                          // Se falhar (ex: senha mudou), limpa sessão e bloqueia
                           sessionStorage.removeItem('studyflow_session_pass');
                       }
                   }
-                  
                   setIsVaultLocked(true); 
               } else {
                   setIsVaultLocked(false);
@@ -243,32 +242,27 @@ function App() {
   }, []);
 
   // --- AUTO SAVE LOGIC ---
-  // Debounce ref
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  // Efeito que monitora mudanças e dispara o save
   useEffect(() => {
-      // Só salva se tiver token e ID
       if (!user.githubToken || !user.backupGistId || isVaultLocked) return;
-      if (isRestoring.current) return; // Evita salvar se estiver restaurando (loop prevention)
+      if (isRestoring.current) return; 
 
       if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
-
-      // Não mostra "Salvando" se estiver "Baixando" (Syncing)
       if (syncState !== 'SYNCING') setSyncState('SAVING'); 
 
       autoSaveTimeoutRef.current = setTimeout(async () => {
           await performAutoSave();
-      }, 5000); // 5 segundos de espera após a última alteração
+      }, 5000); 
 
       return () => {
           if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
       };
-  }, [subjects, plans, errorLogs, simulatedExams, savedNotes, currentPlanId, user]); // User adicionado às dependências
+  }, [subjects, plans, errorLogs, simulatedExams, savedNotes, currentPlanId, user]); 
 
   const performAutoSave = async () => {
       try {
-          if (syncState === 'SYNCING') return; // Evita salvar enquanto baixa
+          if (syncState === 'SYNCING') return; 
           setSyncState('SAVING');
           
           const backupData = {
@@ -278,14 +272,13 @@ function App() {
               plans,
               currentPlanId,
               errors: errorLogs,
-              // Enviamos o User completo, exceto as chaves, para garantir que Nome/Avatar sejam salvos
+              // User data sync: salva tudo exceto as chaves sensíveis
               user: { 
                   name: user.name,
                   email: user.email,
                   avatarUrl: user.avatarUrl,
                   openAiModel: user.openAiModel,
                   dailyAvailableTimeMinutes: user.dailyAvailableTimeMinutes,
-                  // Chaves NÃO vão para o backup
                   githubToken: undefined, 
                   openAiApiKey: undefined 
               }, 
@@ -314,7 +307,7 @@ function App() {
           });
 
           setSyncState('SAVED');
-          setTimeout(() => setSyncState('IDLE'), 3000); // Limpa status após 3s
+          setTimeout(() => setSyncState('IDLE'), 3000); 
           
       } catch (e) {
           console.error("Auto-save falhou", e);
@@ -322,9 +315,10 @@ function App() {
       }
   };
 
-  const handleRestoreData = async (gistId: string, token: string, silent = false) => {
+  // Funcao de Restore Atualizada: aceita 'forcedKeys' para injetar chaves durante o unlock
+  const handleRestoreData = async (gistId: string, token: string, silent = false, forcedKeys?: Partial<UserProfile>) => {
         try {
-            isRestoring.current = true; // Seta flag para bloquear auto-save
+            isRestoring.current = true; 
             if (silent) setSyncState('SYNCING');
 
             const response = await fetch(`https://api.github.com/gists/${gistId}`, {
@@ -339,7 +333,6 @@ function App() {
             
             const content = JSON.parse(data.files[fileKey].content);
             
-            // Restauração de Estado
             if (content.subjects) {
                 const hydratedSubjects = content.subjects.map((s: any) => ({
                     ...s,
@@ -353,36 +346,40 @@ function App() {
             if (content.savedNotes) setSavedNotes(content.savedNotes.map((n: any) => ({ ...n, createdAt: new Date(n.createdAt) })));
             if (content.currentPlanId) setCurrentPlanId(content.currentPlanId);
             
-            // Lógica de Restauração do Usuário Reforçada
+            // Restauração Robusta do Perfil
             if (content.user) {
-                console.log("Restaurando perfil do usuário:", content.user.name);
-                setUser(prev => ({
-                    ...prev,
-                    // Prioriza dados da nuvem, usa fallback local se vazio
-                    name: content.user.name || prev.name,
-                    email: content.user.email || prev.email,
-                    avatarUrl: content.user.avatarUrl || prev.avatarUrl,
-                    openAiModel: content.user.openAiModel || prev.openAiModel,
-                    dailyAvailableTimeMinutes: content.user.dailyAvailableTimeMinutes || prev.dailyAvailableTimeMinutes,
+                console.log("Sincronizando perfil:", content.user.name);
+                setUser(prev => {
+                    // 1. Começa com o estado anterior
+                    // 2. Sobrescreve com TUDO que veio da nuvem (nome, avatar, email...)
+                    const mergedUser = { ...prev, ...content.user };
                     
-                    // SEGURANÇA: Mantém chaves locais (vindas do cofre), ignorando o que vem da nuvem (que deve ser undefined)
-                    // Importante: As chaves locais já foram setadas pelo handleUnlockVault no 'prev'
-                    openAiApiKey: prev.openAiApiKey, 
-                    githubToken: prev.githubToken,
-                    backupGistId: prev.backupGistId
-                }));
+                    // 3. Reaplica as chaves de segurança (que não vêm da nuvem)
+                    // Se 'forcedKeys' veio do unlock, usa elas (mais seguro/recente).
+                    // Se não, mantém o que já estava em 'prev'.
+                    if (forcedKeys) {
+                        mergedUser.openAiApiKey = forcedKeys.openAiApiKey || prev.openAiApiKey;
+                        mergedUser.githubToken = forcedKeys.githubToken || prev.githubToken;
+                        mergedUser.backupGistId = forcedKeys.backupGistId || prev.backupGistId;
+                    } else {
+                        mergedUser.openAiApiKey = prev.openAiApiKey;
+                        mergedUser.githubToken = prev.githubToken;
+                        mergedUser.backupGistId = prev.backupGistId;
+                    }
+                    
+                    return mergedUser;
+                });
             }
             
-            if (!silent) alert("Dados e perfil restaurados com sucesso!");
+            if (!silent) alert("Dados restaurados com sucesso!");
             setSyncState('SAVED');
             setTimeout(() => setSyncState('IDLE'), 3000);
 
         } catch (e: any) {
             console.error("Restore error:", e);
-            if (!silent) alert("Erro ao restaurar dados: " + e.message);
+            if (!silent) alert("Erro ao restaurar: " + e.message);
             setSyncState('ERROR');
         } finally {
-            // Libera o auto-save após um breve período
             setTimeout(() => { isRestoring.current = false; }, 2000);
         }
   };
@@ -397,9 +394,9 @@ function App() {
       try {
           const decryptedData = await decryptVault(vaultEncryptedData, vaultPasswordInput);
           
-          // SALVA NA SESSÃO PARA REFRESH AUTOMÁTICO
           sessionStorage.setItem('studyflow_session_pass', vaultPasswordInput);
 
+          // Atualiza chaves localmente
           setUser(prev => ({
               ...prev,
               openAiApiKey: decryptedData.openAiApiKey || prev.openAiApiKey,
@@ -409,15 +406,14 @@ function App() {
           
           setIsVaultLocked(false);
 
-          // LÓGICA DE SYNC AUTOMÁTICO:
-          // Se tiver backup configurado E for uma sessão "nova" (sem dados locais), puxa da nuvem automaticamente.
+          // Lógica de Sync Automático (Pull)
           const hasBackupCreds = decryptedData.backupGistId && decryptedData.githubToken;
           const isFreshSession = subjects.length === 0;
 
           if (hasBackupCreds && isFreshSession) {
-              console.log("Sessão nova detectada. Iniciando download automático...");
-              // Chama o restore em modo silencioso
-              handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken, true);
+              console.log("Sessão limpa detectada. Baixando dados da nuvem...");
+              // Passa as chaves descriptografadas explicitamente para garantir que o restore as use
+              await handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken, true, decryptedData);
           }
           
           setVaultPasswordInput('');
