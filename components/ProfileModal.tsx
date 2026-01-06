@@ -186,7 +186,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
     };
 
     // --- SAVE LOGIC ---
-    const handleSave = () => {
+    const handleSave = async () => {
         const finalApiKey = apiKeyInput.trim() ? apiKeyInput.trim().replace(/[^\x00-\x7F]/g, "") : user.openAiApiKey;
         const finalGithubToken = githubTokenInput.trim() ? githubTokenInput.trim().replace(/[^\x00-\x7F]/g, "") : user.githubToken;
 
@@ -200,6 +200,37 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
             backupGistId
         };
         
+        // --- AUTO UPDATE VAULT (SECURITY) ---
+        // Se o cofre estiver ativo, precisamos re-criptografar as NOVAS chaves com a senha da sessão.
+        // Se não fizermos isso, o localStorage.setItem(user) do App.tsx vai apagar as chaves (por segurança)
+        // e o cofre antigo ainda terá as chaves VELHAS.
+        if (isVaultActive) {
+            const sessionPass = sessionStorage.getItem('studyflow_session_pass');
+            if (sessionPass) {
+                try {
+                    const dataToEncrypt = JSON.stringify({
+                        openAiApiKey: finalApiKey,
+                        githubToken: finalGithubToken,
+                        backupGistId: backupGistId
+                    });
+                    
+                    const newVaultString = await generateVaultString(dataToEncrypt, sessionPass);
+                    localStorage.setItem('studyflow_secure_vault', newVaultString);
+                    console.log("Cofre local atualizado automaticamente com as novas chaves.");
+                    
+                    // Aviso se mudou chaves importantes e tem cofre na nuvem configurado (mas não estamos atualizando a nuvem automaticamente aqui)
+                    if (repoName && (githubTokenInput || apiKeyInput)) {
+                        alert("Chaves atualizadas localmente! \n\nIMPORTANTE: Para atualizar o 'vault.json' no seu GitHub, vá até a aba Segurança e clique em 'Salvar na Nuvem' novamente.");
+                    }
+                } catch (e) {
+                    console.error("Erro ao atualizar cofre:", e);
+                    alert("Erro ao atualizar o cofre seguro. Por favor, reconfigure na aba Segurança.");
+                }
+            } else {
+                alert("Atenção: O cofre está ativo mas a senha da sessão expirou. Suas novas chaves NÃO foram protegidas no cofre. \n\nPor favor, vá na aba Segurança e recrie o cofre.");
+            }
+        }
+
         onSave(updatedUser);
         onClose();
     };
@@ -235,6 +266,9 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
             // 2. Salva
             if (target === 'LOCAL') {
                 localStorage.setItem('studyflow_secure_vault', encryptedString);
+                
+                // Salva senha na sessão para permitir updates futuros sem redigitar
+                sessionStorage.setItem('studyflow_session_pass', vaultPassword);
                 
                 // Limpa do armazenamento inseguro
                 const currentUser = JSON.parse(localStorage.getItem('studyflow_user') || '{}');
@@ -290,6 +324,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                 
                 // Também ativa localmente para consistência
                 localStorage.setItem('studyflow_secure_vault', encryptedString);
+                sessionStorage.setItem('studyflow_session_pass', vaultPassword);
                 setIsVaultActive(true);
             }
 
