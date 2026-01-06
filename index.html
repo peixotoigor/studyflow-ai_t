@@ -10,9 +10,12 @@
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800;900&family=Lexend:wght@100..900&display=swap" rel="stylesheet" />
     <link href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&display=swap" rel="stylesheet" />
+    
+    <!-- KaTeX CSS for Math Rendering -->
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/katex@0.16.9/dist/katex.min.css" integrity="sha384-n8MVd4RsNIU0tAv4ct0nTaAbDJwPJzDEaqSD1odI+WdtXRGWt2kTvGFasHpSy3SV" crossorigin="anonymous">
 
     <!-- Tailwind CSS -->
-    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries,typography"></script>
     <script>
       tailwind.config = {
         darkMode: "class",
@@ -66,7 +69,6 @@
           background-size: 20px 20px;
       }
     </style>
-
   <script type="importmap">
 {
   "imports": {
@@ -75,14 +77,16 @@
     "react-dom/": "https://esm.sh/react-dom@^19.2.3/",
     "@google/genai": "https://esm.sh/@google/genai",
     "pdfjs-dist": "https://esm.sh/pdfjs-dist@4.0.379",
-    "pdfjs-dist/": "https://esm.sh/pdfjs-dist@4.0.379/"
+    "pdfjs-dist/": "https://esm.sh/pdfjs-dist@4.0.379/",
+    "react-markdown": "https://esm.sh/react-markdown@9.0.1?bundle",
+    "remark-gfm": "https://esm.sh/remark-gfm@4.0.0?bundle",
+    "remark-math": "https://esm.sh/remark-math@6.0.0?bundle",
+    "rehype-katex": "https://esm.sh/rehype-katex@7.0.0?bundle"
   }
 }
 </script>
-  <script type="module" crossorigin src="/studyflow-ai_t/assets/index-2obwKVdF.js"></script>
-  <link rel="stylesheet" crossorigin href="/studyflow-ai_t/assets/index-D6BjwsTZ.css">
 </head>
   <body class="bg-background-light dark:bg-background-dark text-text-primary-light dark:text-text-primary-dark transition-colors duration-200">
     <div id="root"></div>
-</body>
+  </body>
 </html>
