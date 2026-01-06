@@ -18,7 +18,7 @@ interface AiTutorChatProps {
 
 export const AiTutorChat: React.FC<AiTutorChatProps> = ({ isOpen, onClose, subject, topic, apiKey, model = 'gpt-4o-mini', onSaveNote }) => {
     const [messages, setMessages] = useState<Message[]>([
-        { id: 'welcome', role: 'assistant', text: `Olá! Sou seu Tutor de ${subject}. Como posso te ajudar com ${topic} hoje?` }
+        { id: 'welcome', role: 'assistant', text: `Tutor Ativo. Mande sua dúvida sobre ${subject} (Tópico: ${topic}). Serei direto.` }
     ]);
     const [input, setInput] = useState('');
     const [isLoading, setIsLoading] = useState(false);
@@ -46,11 +46,29 @@ export const AiTutorChat: React.FC<AiTutorChatProps> = ({ isOpen, onClose, subje
         const cleanApiKey = apiKey.trim().replace(/[^\x00-\x7F]/g, "");
 
         try {
-            const systemInstruction = `Você é um Tutor de Estudos IA amigável, especialista e socrático. 
-            O aluno está estudando a disciplina: "${subject}", focando no tópico: "${topic}".
-            Suas respostas devem ser concisas, pedagógicas e encorajadoras.
-            Não dê a resposta direta imediatamente se for uma questão de raciocínio; guie o aluno.
-            Use formatação Markdown simples (negrito, listas) para melhorar a legibilidade.`;
+            // PROMPT OTIMIZADO PARA CONCURSEIROS (TIRO CURTO)
+            const systemInstruction = `
+                ATUAÇÃO: Você é um Mentor de Elite para Concursos Públicos.
+                CONTEXTO: O aluno está em uma sessão de estudo focado (tempo cronometrado). Ele precisa de respostas imediatas.
+                
+                DISCIPLINA: "${subject}"
+                TÓPICO: "${topic}"
+
+                REGRAS RÍGIDAS DE RESPOSTA:
+                1. SEJA CIRÚRGICO: Vá direto à resposta. PROIBIDO usar saudações ("Olá", "Tudo bem"), frases de apoio ("Ótima pergunta") ou introduções longas.
+                2. FOCO NA PROVA: Explique o conceito focando em como as bancas cobram.
+                3. PEGADINHAS: Se houver uma "pegadinha" clássica sobre o tema, alerte imediatamente com o emoji ⚠️.
+                4. LEI SECA: Se for jurídico, cite o Artigo/Lei.
+                5. MNEMÔNICOS: Se houver macete para decorar, entregue-o.
+                6. FORMATAÇÃO: Use Bullet Points e NEGRITO nas palavras-chave para leitura dinâmica.
+                7. TAMANHO: Mantenha a resposta curta (máximo de 3 parágrafos curtos ou listas).
+
+                Exemplo de tom desejado:
+                "A diferença é X.
+                - **Conceito A**: Aplica-se em Y (Art. 5º).
+                - **Conceito B**: Aplica-se em Z.
+                ⚠️ Cuidado: A banca FGV costuma trocar os prazos."
+            `;
 
             // Preparar histórico para OpenAI
             const apiMessages = [
@@ -71,7 +89,8 @@ export const AiTutorChat: React.FC<AiTutorChatProps> = ({ isOpen, onClose, subje
                 body: JSON.stringify({
                     model: model,
                     messages: apiMessages,
-                    temperature: 0.7
+                    temperature: 0.5, // Temperatura menor para ser mais factual e menos criativo
+                    max_tokens: 300 // Limita o tamanho da resposta para garantir brevidade
                 })
             });
 
@@ -111,7 +130,7 @@ export const AiTutorChat: React.FC<AiTutorChatProps> = ({ isOpen, onClose, subje
                         <span className="material-symbols-outlined text-[20px]">smart_toy</span>
                     </div>
                     <div>
-                        <h3 className="font-bold text-text-primary-light dark:text-white text-sm">Tutor IA (OpenAI)</h3>
+                        <h3 className="font-bold text-text-primary-light dark:text-white text-sm">Tutor IA (Modo Flash)</h3>
                         <p className="text-[10px] text-text-secondary-light dark:text-text-secondary-dark truncate max-w-[200px]">{subject} • {topic}</p>
                     </div>
                 </div>
@@ -124,7 +143,7 @@ export const AiTutorChat: React.FC<AiTutorChatProps> = ({ isOpen, onClose, subje
             <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-4 bg-background-light dark:bg-background-dark/50">
                 {messages.map((msg) => (
                     <div key={msg.id} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-                        <div className={`max-w-[85%] rounded-2xl p-3 text-sm shadow-sm group relative ${
+                        <div className={`max-w-[90%] rounded-2xl p-3 text-sm shadow-sm group relative ${
                             msg.role === 'user' 
                                 ? 'bg-primary text-white rounded-br-none' 
                                 : 'bg-white dark:bg-[#1e1e2d] text-text-primary-light dark:text-text-primary-dark border border-border-light dark:border-border-dark rounded-bl-none pr-8'
@@ -163,7 +182,7 @@ export const AiTutorChat: React.FC<AiTutorChatProps> = ({ isOpen, onClose, subje
                         value={input}
                         onChange={(e) => setInput(e.target.value)}
                         onKeyDown={handleKeyDown}
-                        placeholder="Digite sua dúvida..."
+                        placeholder="Dúvida rápida (ex: prazo recurso ordinário)..."
                         className="flex-1 bg-transparent border-none focus:ring-0 text-sm text-text-primary-light dark:text-white resize-none max-h-32 min-h-[44px] py-3"
                         rows={1}
                     />
@@ -180,7 +199,7 @@ export const AiTutorChat: React.FC<AiTutorChatProps> = ({ isOpen, onClose, subje
                     </button>
                 </div>
                 <p className="text-[10px] text-center text-text-secondary-light dark:text-text-secondary-dark mt-2">
-                    O Tutor IA pode cometer erros. Verifique informações importantes.
+                    IA focada em Concursos. Verifique dados críticos.
                 </p>
             </div>
         </div>
