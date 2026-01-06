@@ -211,29 +211,37 @@ function App() {
   // --- VAULT DETECTION LOGIC ---
   useEffect(() => {
       const checkVault = async () => {
+          setCheckingVault(true);
           try {
+              // 1. Tenta carregar localmente primeiro
               let encryptedData: string | null = safeGet('studyflow_secure_vault');
 
-              // Se não achou local, tenta remoto
+              // 2. Se não achou local, tenta remoto (CRÍTICO PARA NOVOS DISPOSITIVOS)
               if (!encryptedData) {
                   try {
+                      // Usa timestamp para evitar cache do navegador
                       const response = await fetch(`./vault.json?t=${Date.now()}`);
                       if (response.ok) {
                           const json = await response.json();
                           if (json.data) {
+                              console.log("Cofre remoto encontrado!");
                               encryptedData = json.data;
-                              // Tenta salvar localmente para próximas vezes
+                              // Salva localmente para a próxima vez ser mais rápida
                               safeSet('studyflow_secure_vault', json.data);
                           }
+                      } else {
+                          console.log("Nenhum cofre remoto encontrado (404).");
                       }
-                  } catch (e) { console.log("Sem cofre remoto."); }
+                  } catch (e) { 
+                      console.log("Erro ao buscar cofre remoto:", e); 
+                  }
               }
 
-              // Se achou dados criptografados
+              // 3. Processa o resultado
               if (encryptedData) {
                   setVaultEncryptedData(encryptedData);
                   
-                  // TENTA AUTO-UNLOCK VIA SESSION STORAGE (Se disponível)
+                  // TENTA AUTO-UNLOCK VIA SESSION STORAGE (Se recarregou a página)
                   try {
                       const sessionPass = sessionStorage.getItem('studyflow_session_pass');
                       if (sessionPass) {
@@ -245,20 +253,23 @@ function App() {
                               backupGistId: decryptedData.backupGistId || prev.backupGistId
                           }));
                           setIsVaultLocked(false);
-                          setCheckingVault(false);
-                          return;
+                          // Se já desbloqueou via sessão, tenta sync discreto
+                          if (decryptedData.backupGistId && subjects.length === 0) {
+                              handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken, true, decryptedData);
+                          }
+                      } else {
+                          setIsVaultLocked(true); // Bloqueia se não tiver senha na sessão
                       }
                   } catch (e) {
+                      setIsVaultLocked(true); // Senha de sessão inválida
                       sessionStorage.removeItem('studyflow_session_pass');
                   }
-                  setIsVaultLocked(true); 
               } else {
-                  setIsVaultLocked(false);
+                  setIsVaultLocked(false); // Nenhum cofre = modo livre
               }
           } catch (e) {
-              console.log("Erro ao verificar cofre.");
-              // Em caso de erro crítico (ex: localStorage bloqueado), assume sem vault para não travar
-              setIsVaultLocked(false);
+              console.error("Erro fatal na verificação do cofre:", e);
+              setIsVaultLocked(false); // Falha segura
           } finally {
               setCheckingVault(false);
           }
@@ -434,15 +445,16 @@ function App() {
           
           setIsVaultLocked(false);
 
-          // AUTO-SYNC ON UNLOCK: Se tiver credenciais, puxa os dados imediatamente
+          // AUTO-SYNC ON UNLOCK: Fundamental para novos dispositivos
           const hasBackupCreds = decryptedData.backupGistId && decryptedData.githubToken;
           
           // Sempre tenta sincronizar se tiver credenciais (não só fresh session), 
-          // mas cuidado para não sobrescrever trabalho não salvo se LocalStorage estiver funcionando.
-          // Em modo privado (sem LocalStorage), subjects.length será 0, então é seguro.
+          // pois em um novo dispositivo subjects.length será 0 inicialmente.
           const isFreshSession = subjects.length === 0; 
 
-          if (hasBackupCreds && isFreshSession) {
+          if (hasBackupCreds) {
+              // Força o sync visualmente
+              setSyncState('SYNCING');
               await handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken, true, decryptedData);
           }
           
@@ -567,6 +579,15 @@ function App() {
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
 
   const renderScreen = () => {
+    if (checkingVault) {
+        return (
+            <div className="h-screen w-full flex flex-col items-center justify-center bg-background-light dark:bg-background-dark animate-in fade-in">
+                <span className="material-symbols-outlined text-5xl text-primary animate-spin mb-4">cloud_sync</span>
+                <p className="text-sm font-bold text-text-secondary-light dark:text-text-secondary-dark">Sincronizando com a Nuvem...</p>
+            </div>
+        );
+    }
+
     if (isVaultLocked) {
         return (
             <div className="flex flex-col items-center justify-center h-full p-8 animate-in fade-in">
@@ -574,9 +595,9 @@ function App() {
                     <div className="size-16 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
                         <span className="material-symbols-outlined text-3xl text-amber-600 dark:text-amber-400">lock</span>
                     </div>
-                    <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-2">Chaves Bloqueadas</h2>
+                    <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-2">Cofre Detectado</h2>
                     <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm">
-                        Detectamos um cofre digital. Digite sua senha para liberar o uso das APIs.
+                        Detectamos um backup protegido na nuvem. Digite sua senha para desbloquear e restaurar seus dados.
                     </p>
                     <form onSubmit={handleUnlockVault} className="flex flex-col gap-4">
                         <div className="relative">
@@ -604,7 +625,7 @@ function App() {
                             type="submit"
                             className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold shadow-lg shadow-amber-500/20 transition-all active:scale-95"
                         >
-                            {checkingVault ? 'Verificando...' : 'Desbloquear Acesso'}
+                            {checkingVault ? 'Desbloqueando...' : 'Desbloquear e Sincronizar'}
                         </button>
                     </form>
                 </div>
@@ -641,8 +662,6 @@ function App() {
   };
 
   const activePlanColor = plans.find(p => p.id === currentPlanId)?.color || 'blue';
-
-  if (checkingVault) return <div className="h-screen w-full flex items-center justify-center bg-background-light dark:bg-background-dark"><span className="material-symbols-outlined text-4xl text-primary animate-spin">sync</span></div>;
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background-light dark:bg-background-dark text-text-primary-light dark:text-text-primary-dark">
