@@ -523,11 +523,35 @@ function App() {
       }));
   };
   const handleUpdateSubject = (us: Subject) => setSubjects(prev => prev.map(s => s.id === us.id ? us : s));
+  
+  // Função para completar sessão (cria novo log)
   const handleSessionComplete = (sId: string, tId: string, d: number, q: number, c: number, finished: boolean) => {
       setSubjects(prev => prev.map(s => {
           if (s.id !== sId) return s;
           const log: StudyLog = { id: Date.now().toString(), date: new Date(), topicId: tId, topicName: s.topics.find(t => t.id === tId)?.name || 'Geral', durationMinutes: d, questionsCount: q, correctCount: c };
           return { ...s, topics: s.topics.map(t => t.id === tId && finished ? { ...t, completed: true } : t), logs: [log, ...(s.logs || [])] };
+      }));
+  };
+
+  // Funções para manipular Logs Existentes (Edição e Exclusão)
+  const handleUpdateLog = (subjectId: string, logId: string, updatedLog: Partial<StudyLog>) => {
+      setSubjects(prev => prev.map(s => {
+          if (s.id !== subjectId) return s;
+          return {
+              ...s,
+              logs: s.logs ? s.logs.map(log => log.id === logId ? { ...log, ...updatedLog } : log) : []
+          };
+      }));
+  };
+
+  const handleDeleteSubjectLog = (subjectId: string, logId: string) => {
+      if (!window.confirm("Deseja apagar este registro de estudo?")) return;
+      setSubjects(prev => prev.map(s => {
+          if (s.id !== subjectId) return s;
+          return {
+              ...s,
+              logs: s.logs ? s.logs.filter(log => log.id !== logId) : []
+          };
       }));
   };
 
@@ -584,7 +608,21 @@ function App() {
     switch (currentScreen) {
       case Screen.DASHBOARD: return <Dashboard onNavigate={setCurrentScreen} user={user} subjects={currentPlanSubjects} errorLogs={currentPlanErrorLogs} />;
       case Screen.STUDY_PLAYER: return <StudyPlayer apiKey={user.openAiApiKey} model={user.openAiModel} subjects={currentPlanSubjects} dailyAvailableTime={user.dailyAvailableTimeMinutes || 240} onSessionComplete={handleSessionComplete} onNavigate={setCurrentScreen} onSaveNote={handleAddSavedNote} />;
-      case Screen.SUBJECTS: return <SubjectManager subjects={currentPlanSubjects} onDeleteSubject={handleDeleteSubject} onAddSubject={handleAddManualSubject} onToggleStatus={handleToggleSubjectStatus} onAddTopic={handleAddTopic} onRemoveTopic={handleRemoveTopic} onMoveTopic={handleMoveTopic} onUpdateSubject={handleUpdateSubject} onEditTopic={handleEditTopic} apiKey={user.openAiApiKey} model={user.openAiModel} />;
+      case Screen.SUBJECTS: return <SubjectManager 
+                                        subjects={currentPlanSubjects} 
+                                        onDeleteSubject={handleDeleteSubject} 
+                                        onAddSubject={handleAddManualSubject} 
+                                        onToggleStatus={handleToggleSubjectStatus} 
+                                        onAddTopic={handleAddTopic} 
+                                        onRemoveTopic={handleRemoveTopic} 
+                                        onMoveTopic={handleMoveTopic} 
+                                        onUpdateSubject={handleUpdateSubject} 
+                                        onEditTopic={handleEditTopic} 
+                                        onUpdateLog={handleUpdateLog}
+                                        onDeleteLog={handleDeleteSubjectLog}
+                                        apiKey={user.openAiApiKey} 
+                                        model={user.openAiModel} 
+                                    />;
       case Screen.IMPORTER: return <Importer apiKey={user.openAiApiKey} model={user.openAiModel} onImport={handleImportSubjects} state={importerState} setState={setImporterState} />;
       case Screen.DYNAMIC_SCHEDULE: return <DynamicSchedule subjects={currentPlanSubjects} onUpdateSubject={handleUpdateSubject} user={user} onUpdateUser={setUser} errorLogs={currentPlanErrorLogs} />;
       case Screen.ERROR_NOTEBOOK: return <ErrorNotebook subjects={currentPlanSubjects} logs={currentPlanErrorLogs} onAddLog={handleAddErrorLog} onDeleteLog={handleDeleteErrorLog} />;

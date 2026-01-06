@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Subject, Topic, getSubjectIcon } from '../types';
+import { Subject, Topic, StudyLog, getSubjectIcon } from '../types';
 
 interface SubjectManagerProps {
     subjects?: Subject[];
@@ -11,6 +11,8 @@ interface SubjectManagerProps {
     onMoveTopic?: (subjectId: string, fromIndex: number, toIndex: number) => void;
     onUpdateSubject?: (subject: Subject) => void;
     onEditTopic?: (subjectId: string, topicId: string, newName: string) => void;
+    onUpdateLog?: (subjectId: string, logId: string, updatedLog: Partial<StudyLog>) => void;
+    onDeleteLog?: (subjectId: string, logId: string) => void;
     apiKey?: string;
     model?: string;
 }
@@ -29,6 +31,8 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     onMoveTopic,
     onUpdateSubject,
     onEditTopic,
+    onUpdateLog,
+    onDeleteLog,
     apiKey,
     model = 'gpt-4o-mini'
 }) => {
@@ -42,6 +46,7 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
         return null;
     });
 
+    const [activeTab, setActiveTab] = useState<'TOPICS' | 'HISTORY'>('TOPICS');
     const [newTopicInput, setNewTopicInput] = useState<string>('');
     const [searchTerm, setSearchTerm] = useState('');
     
@@ -61,6 +66,10 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     const [editingTopicId, setEditingTopicId] = useState<string | null>(null);
     const [editingTopicName, setEditingTopicName] = useState('');
     const editInputRef = useRef<HTMLInputElement>(null);
+
+    // State for Log Editing
+    const [editingLogId, setEditingLogId] = useState<string | null>(null);
+    const [editLogData, setEditLogData] = useState<Partial<StudyLog>>({});
 
     // Efeito para selecionar automaticamente apenas se não houver salvo e tiver dados
     useEffect(() => {
@@ -95,8 +104,9 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
 
     const toggleExpand = (id: string) => {
         setExpandedSubjectId(expandedSubjectId === id ? null : id);
-        setNewTopicInput(''); // Reset input
-        setEditingTopicId(null); // Cancel edit if closed
+        setNewTopicInput(''); 
+        setEditingTopicId(null); 
+        setActiveTab('TOPICS');
     };
 
     const handleAddTopicSubmit = (subjectId: string) => {
@@ -144,6 +154,25 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
             saveEditingTopic(subjectId);
         } else if (e.key === 'Escape') {
             cancelEditingTopic();
+        }
+    };
+
+    // --- Log Editing Handlers ---
+    const startEditingLog = (log: StudyLog) => {
+        setEditingLogId(log.id);
+        setEditLogData({ ...log });
+    };
+
+    const cancelEditingLog = () => {
+        setEditingLogId(null);
+        setEditLogData({});
+    };
+
+    const saveEditingLog = (subjectId: string) => {
+        if (editingLogId && onUpdateLog) {
+            onUpdateLog(subjectId, editingLogId, editLogData);
+            setEditingLogId(null);
+            setEditLogData({});
         }
     };
 
@@ -374,135 +403,302 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
 
                     </div>
                     
+                    {/* TABS NAVIGATION */}
+                    <div className="flex border-b border-border-light dark:border-border-dark bg-card-light dark:bg-card-dark px-5">
+                        <button 
+                            onClick={() => setActiveTab('TOPICS')}
+                            className={`py-3 px-4 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'TOPICS' ? 'border-primary text-primary' : 'border-transparent text-text-secondary-light dark:text-text-secondary-dark hover:text-primary'}`}
+                        >
+                            <span className="material-symbols-outlined text-[18px]">list</span>
+                            Tópicos
+                        </button>
+                        <button 
+                            onClick={() => setActiveTab('HISTORY')}
+                            className={`py-3 px-4 text-sm font-bold border-b-2 transition-colors flex items-center gap-2 ${activeTab === 'HISTORY' ? 'border-primary text-primary' : 'border-transparent text-text-secondary-light dark:text-text-secondary-dark hover:text-primary'}`}
+                        >
+                            <span className="material-symbols-outlined text-[18px]">history</span>
+                            Histórico
+                        </button>
+                    </div>
+
+                    {/* CONTENT AREA */}
                     <div className="p-5 bg-card-light dark:bg-card-dark flex flex-col gap-4">
-                        <div className="flex items-center justify-between">
-                             <h4 className="text-sm font-semibold uppercase tracking-wider text-text-secondary-light dark:text-text-secondary-dark flex items-center gap-2">
-                                <span className="material-symbols-outlined text-[18px]">list</span>
-                                Tópicos e Ordem de Estudo
-                             </h4>
-                             <span className="text-xs text-text-secondary-light dark:text-text-secondary-dark flex items-center gap-1">
-                                <span className="material-symbols-outlined text-[14px]">drag_indicator</span>
-                                Arraste para reordenar
-                             </span>
-                        </div>
-
-                        <div className="flex flex-col gap-2 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                            {subject.topics.length === 0 && (
-                                <div className="text-center py-8 border-2 border-dashed border-border-light dark:border-border-dark rounded-lg text-text-secondary-light dark:text-text-secondary-dark text-sm">
-                                    Nenhum tópico adicionado ainda.
+                        
+                        {/* 1. TOPICS TAB */}
+                        {activeTab === 'TOPICS' && (
+                            <>
+                                <div className="flex items-center justify-between">
+                                     <h4 className="text-sm font-semibold uppercase tracking-wider text-text-secondary-light dark:text-text-secondary-dark flex items-center gap-2">
+                                        <span className="material-symbols-outlined text-[18px]">drag_indicator</span>
+                                        Ordem de Estudo
+                                     </h4>
                                 </div>
-                            )}
-                            
-                            {subject.topics.map((topic, idx) => (
-                                <div 
-                                    key={topic.id} 
-                                    draggable={editingTopicId === null} // Disable drag while editing
-                                    onDragStart={() => handleDragStart(idx)}
-                                    onDragOver={handleDragOver}
-                                    onDrop={() => handleDrop(subject.id, idx)}
-                                    className={`group flex items-center gap-3 p-2 rounded-lg border transition-all 
-                                        ${draggedTopicIndex === idx 
-                                            ? 'opacity-50 border-primary border-dashed bg-primary/5' 
-                                            : 'border-transparent hover:bg-gray-50 dark:hover:bg-white/5 hover:border-border-light dark:hover:border-border-dark'
-                                        }
-                                        ${editingTopicId === topic.id ? 'bg-primary/5 border-primary/20' : 'cursor-move'}
-                                    `}
-                                >
-                                     <div className="text-text-secondary-light dark:text-text-secondary-dark p-1">
-                                         {editingTopicId !== topic.id && (
-                                            <span className="material-symbols-outlined text-[18px] text-gray-300 dark:text-gray-600 cursor-grab active:cursor-grabbing">drag_indicator</span>
-                                         )}
-                                     </div>
-                                     
-                                     {editingTopicId !== topic.id && (
-                                         <div className={`size-5 rounded border flex items-center justify-center shrink-0 ${topic.completed ? 'bg-green-500 border-green-500' : 'border-gray-300 dark:border-gray-600'}`}>
-                                            {topic.completed && <span className="material-symbols-outlined text-white text-[14px]">check</span>}
-                                         </div>
-                                     )}
-                                     
-                                     {editingTopicId === topic.id ? (
-                                         <div className="flex-1 flex items-center gap-2">
-                                             <input
-                                                ref={editInputRef}
-                                                type="text"
-                                                value={editingTopicName}
-                                                onChange={(e) => setEditingTopicName(e.target.value)}
-                                                onKeyDown={(e) => handleEditKeyDown(e, subject.id)}
-                                                onBlur={() => saveEditingTopic(subject.id)}
-                                                className="flex-1 text-sm p-1.5 rounded border border-primary/50 bg-white dark:bg-black/20 focus:ring-1 focus:ring-primary outline-none"
-                                             />
-                                             <button 
-                                                onMouseDown={(e) => { e.preventDefault(); saveEditingTopic(subject.id); }} // onMouseDown fires before onBlur
-                                                className="p-1 text-green-500 hover:bg-green-100 dark:hover:bg-green-900/30 rounded"
-                                             >
-                                                 <span className="material-symbols-outlined text-[18px]">check</span>
-                                             </button>
-                                             <button 
-                                                onMouseDown={(e) => { e.preventDefault(); cancelEditingTopic(); }}
-                                                className="p-1 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 rounded"
-                                             >
-                                                 <span className="material-symbols-outlined text-[18px]">close</span>
-                                             </button>
-                                         </div>
-                                     ) : (
-                                         <span 
-                                            className={`text-sm font-medium flex-1 ${topic.completed ? 'text-gray-400 line-through' : 'text-text-primary-light dark:text-text-primary-dark'}`}
-                                            onDoubleClick={() => startEditingTopic(topic)}
-                                            title="Duplo clique para editar"
-                                         >
-                                             {topic.name}
-                                         </span>
-                                     )}
-                                     
-                                     {editingTopicId !== topic.id && (
-                                         <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                             <button 
-                                                onClick={() => startEditingTopic(topic)}
-                                                className="text-gray-300 hover:text-primary p-1"
-                                                title="Editar Tópico"
-                                             >
-                                                 <span className="material-symbols-outlined text-[18px]">edit</span>
-                                             </button>
-                                             <button 
-                                                onClick={() => onRemoveTopic && onRemoveTopic(subject.id, topic.id)}
-                                                className="text-gray-300 hover:text-red-500 p-1"
-                                                title="Remover Tópico"
-                                             >
-                                                 <span className="material-symbols-outlined text-[18px]">close</span>
-                                             </button>
-                                         </div>
-                                     )}
-                                </div>
-                            ))}
-                        </div>
 
-                        {/* Add Topic Input */}
-                        <div className="flex gap-2 mt-2 pt-4 border-t border-border-light dark:border-border-dark bg-background-light/30 dark:bg-background-dark/30 p-2 rounded-lg">
-                            <input 
-                                type="text" 
-                                value={newTopicInput}
-                                onChange={(e) => setNewTopicInput(e.target.value)}
-                                onKeyDown={(e) => handleTopicKeyDown(e, subject.id)}
-                                placeholder="Digite um tópico único OU cole o texto do edital aqui..."
-                                className="flex-1 bg-white dark:bg-card-dark border border-border-light dark:border-border-dark rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none text-text-primary-light dark:text-text-primary-dark"
-                            />
-                            <button 
-                                onClick={() => handleAddTopicSubmit(subject.id)}
-                                disabled={!newTopicInput.trim()}
-                                className="bg-primary disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-600 transition-colors"
-                            >
-                                <span className="material-symbols-outlined text-[18px]">add</span>
-                                <span className="hidden sm:inline">Adicionar</span>
-                            </button>
-                             <button 
-                                onClick={() => openAiImportModal(subject.id, newTopicInput)}
-                                className={`px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors border ${newTopicInput.length > 30 ? 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700' : 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 border-purple-200 dark:border-purple-800 hover:bg-purple-200 dark:hover:bg-purple-900/50'}`}
-                                title="Usar IA para estruturar texto em lista de tópicos"
-                            >
-                                <span className="material-symbols-outlined text-[18px]">auto_awesome</span>
-                                {newTopicInput.length > 30 && <span className="hidden sm:inline">Estruturar Texto</span>}
-                            </button>
-                        </div>
+                                <div className="flex flex-col gap-2 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
+                                    {subject.topics.length === 0 && (
+                                        <div className="text-center py-8 border-2 border-dashed border-border-light dark:border-border-dark rounded-lg text-text-secondary-light dark:text-text-secondary-dark text-sm">
+                                            Nenhum tópico adicionado ainda.
+                                        </div>
+                                    )}
+                                    
+                                    {subject.topics.map((topic, idx) => (
+                                        <div 
+                                            key={topic.id} 
+                                            draggable={editingTopicId === null} // Disable drag while editing
+                                            onDragStart={() => handleDragStart(idx)}
+                                            onDragOver={handleDragOver}
+                                            onDrop={() => handleDrop(subject.id, idx)}
+                                            className={`group flex items-center gap-3 p-2 rounded-lg border transition-all 
+                                                ${draggedTopicIndex === idx 
+                                                    ? 'opacity-50 border-primary border-dashed bg-primary/5' 
+                                                    : 'border-transparent hover:bg-gray-50 dark:hover:bg-white/5 hover:border-border-light dark:hover:border-border-dark'
+                                                }
+                                                ${editingTopicId === topic.id ? 'bg-primary/5 border-primary/20' : 'cursor-move'}
+                                            `}
+                                        >
+                                             <div className="text-text-secondary-light dark:text-text-secondary-dark p-1">
+                                                 {editingTopicId !== topic.id && (
+                                                    <span className="material-symbols-outlined text-[18px] text-gray-300 dark:text-gray-600 cursor-grab active:cursor-grabbing">drag_indicator</span>
+                                                 )}
+                                             </div>
+                                             
+                                             {editingTopicId !== topic.id && (
+                                                 <div className={`size-5 rounded border flex items-center justify-center shrink-0 ${topic.completed ? 'bg-green-500 border-green-500' : 'border-gray-300 dark:border-gray-600'}`}>
+                                                    {topic.completed && <span className="material-symbols-outlined text-white text-[14px]">check</span>}
+                                                 </div>
+                                             )}
+                                             
+                                             {editingTopicId === topic.id ? (
+                                                 <div className="flex-1 flex items-center gap-2">
+                                                     <input
+                                                        ref={editInputRef}
+                                                        type="text"
+                                                        value={editingTopicName}
+                                                        onChange={(e) => setEditingTopicName(e.target.value)}
+                                                        onKeyDown={(e) => handleEditKeyDown(e, subject.id)}
+                                                        onBlur={() => saveEditingTopic(subject.id)}
+                                                        className="flex-1 text-sm p-1.5 rounded border border-primary/50 bg-white dark:bg-black/20 focus:ring-1 focus:ring-primary outline-none"
+                                                     />
+                                                     <button 
+                                                        onMouseDown={(e) => { e.preventDefault(); saveEditingTopic(subject.id); }} // onMouseDown fires before onBlur
+                                                        className="p-1 text-green-500 hover:bg-green-100 dark:hover:bg-green-900/30 rounded"
+                                                     >
+                                                         <span className="material-symbols-outlined text-[18px]">check</span>
+                                                     </button>
+                                                     <button 
+                                                        onMouseDown={(e) => { e.preventDefault(); cancelEditingTopic(); }}
+                                                        className="p-1 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 rounded"
+                                                     >
+                                                         <span className="material-symbols-outlined text-[18px]">close</span>
+                                                     </button>
+                                                 </div>
+                                             ) : (
+                                                 <span 
+                                                    className={`text-sm font-medium flex-1 ${topic.completed ? 'text-gray-400 line-through' : 'text-text-primary-light dark:text-text-primary-dark'}`}
+                                                    onDoubleClick={() => startEditingTopic(topic)}
+                                                    title="Duplo clique para editar"
+                                                 >
+                                                     {topic.name}
+                                                 </span>
+                                             )}
+                                             
+                                             {editingTopicId !== topic.id && (
+                                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                     <button 
+                                                        onClick={() => startEditingTopic(topic)}
+                                                        className="text-gray-300 hover:text-primary p-1"
+                                                        title="Editar Tópico"
+                                                     >
+                                                         <span className="material-symbols-outlined text-[18px]">edit</span>
+                                                     </button>
+                                                     <button 
+                                                        onClick={() => onRemoveTopic && onRemoveTopic(subject.id, topic.id)}
+                                                        className="text-gray-300 hover:text-red-500 p-1"
+                                                        title="Remover Tópico"
+                                                     >
+                                                         <span className="material-symbols-outlined text-[18px]">close</span>
+                                                     </button>
+                                                 </div>
+                                             )}
+                                        </div>
+                                    ))}
+                                </div>
+
+                                {/* Add Topic Input */}
+                                <div className="flex gap-2 mt-2 pt-4 border-t border-border-light dark:border-border-dark bg-background-light/30 dark:bg-background-dark/30 p-2 rounded-lg">
+                                    <input 
+                                        type="text" 
+                                        value={newTopicInput}
+                                        onChange={(e) => setNewTopicInput(e.target.value)}
+                                        onKeyDown={(e) => handleTopicKeyDown(e, subject.id)}
+                                        placeholder="Digite um tópico único OU cole o texto do edital aqui..."
+                                        className="flex-1 bg-white dark:bg-card-dark border border-border-light dark:border-border-dark rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none text-text-primary-light dark:text-text-primary-dark"
+                                    />
+                                    <button 
+                                        onClick={() => handleAddTopicSubmit(subject.id)}
+                                        disabled={!newTopicInput.trim()}
+                                        className="bg-primary disabled:bg-gray-300 dark:disabled:bg-gray-700 text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-600 transition-colors"
+                                    >
+                                        <span className="material-symbols-outlined text-[18px]">add</span>
+                                        <span className="hidden sm:inline">Adicionar</span>
+                                    </button>
+                                     <button 
+                                        onClick={() => openAiImportModal(subject.id, newTopicInput)}
+                                        className={`px-3 py-2 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors border ${newTopicInput.length > 30 ? 'bg-purple-600 text-white border-purple-600 hover:bg-purple-700' : 'bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-300 border-purple-200 dark:border-purple-800 hover:bg-purple-200 dark:hover:bg-purple-900/50'}`}
+                                        title="Usar IA para estruturar texto em lista de tópicos"
+                                    >
+                                        <span className="material-symbols-outlined text-[18px]">auto_awesome</span>
+                                        {newTopicInput.length > 30 && <span className="hidden sm:inline">Estruturar Texto</span>}
+                                    </button>
+                                </div>
+                            </>
+                        )}
+
+                        {/* 2. HISTORY TAB */}
+                        {activeTab === 'HISTORY' && (
+                            <div className="flex flex-col gap-4 max-h-[500px] overflow-y-auto custom-scrollbar">
+                                {(!subject.logs || subject.logs.length === 0) ? (
+                                    <div className="text-center py-12 text-text-secondary-light dark:text-text-secondary-dark opacity-70">
+                                        <span className="material-symbols-outlined text-4xl mb-2">history_edu</span>
+                                        <p>Nenhuma sessão de estudo registrada.</p>
+                                    </div>
+                                ) : (
+                                    <table className="w-full text-left text-sm border-collapse">
+                                        <thead className="bg-gray-50 dark:bg-white/5 text-xs uppercase text-text-secondary-light dark:text-text-secondary-dark font-bold sticky top-0">
+                                            <tr>
+                                                <th className="p-3 rounded-tl-lg">Data</th>
+                                                <th className="p-3">Tópico / Conteúdo</th>
+                                                <th className="p-3 text-center">Tempo</th>
+                                                <th className="p-3 text-center">Questões</th>
+                                                <th className="p-3 text-right rounded-tr-lg">Ações</th>
+                                            </tr>
+                                        </thead>
+                                        <tbody className="divide-y divide-border-light dark:divide-border-dark">
+                                            {subject.logs.sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).map(log => {
+                                                const isEditing = editingLogId === log.id;
+                                                const accuracy = (editLogData.questionsCount || log.questionsCount) > 0 
+                                                    ? Math.round(((editLogData.correctCount ?? log.correctCount) / (editLogData.questionsCount ?? log.questionsCount)) * 100) 
+                                                    : 0;
+
+                                                return (
+                                                    <tr key={log.id} className="hover:bg-gray-50 dark:hover:bg-white/5 transition-colors">
+                                                        {isEditing ? (
+                                                            <>
+                                                                <td className="p-3">
+                                                                    <input 
+                                                                        type="date" 
+                                                                        value={editLogData.date ? new Date(editLogData.date).toISOString().split('T')[0] : ''}
+                                                                        onChange={e => setEditLogData({...editLogData, date: new Date(e.target.value)})}
+                                                                        className="w-full text-xs p-1 rounded border border-primary/50 bg-white dark:bg-black/20"
+                                                                    />
+                                                                </td>
+                                                                <td className="p-3">
+                                                                    <input 
+                                                                        type="text" 
+                                                                        value={editLogData.topicName}
+                                                                        onChange={e => setEditLogData({...editLogData, topicName: e.target.value})}
+                                                                        className="w-full text-xs p-1 rounded border border-primary/50 bg-white dark:bg-black/20"
+                                                                    />
+                                                                </td>
+                                                                <td className="p-3 text-center">
+                                                                    <div className="flex items-center gap-1 justify-center">
+                                                                        <input 
+                                                                            type="number" 
+                                                                            min="1"
+                                                                            value={editLogData.durationMinutes}
+                                                                            onChange={e => setEditLogData({...editLogData, durationMinutes: parseInt(e.target.value)})}
+                                                                            className="w-16 text-xs p-1 rounded border border-primary/50 bg-white dark:bg-black/20 text-center"
+                                                                        />
+                                                                        <span className="text-[10px]">min</span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="p-3 text-center">
+                                                                    <div className="flex flex-col gap-1 items-center">
+                                                                        <div className="flex items-center gap-1 text-[10px] text-gray-500 uppercase">
+                                                                            <span>Feitas</span>
+                                                                            <span>Certas</span>
+                                                                        </div>
+                                                                        <div className="flex items-center gap-1">
+                                                                            <input 
+                                                                                type="number" min="0"
+                                                                                value={editLogData.questionsCount}
+                                                                                onChange={e => setEditLogData({...editLogData, questionsCount: parseInt(e.target.value)})}
+                                                                                className="w-12 text-xs p-1 rounded border border-primary/50 bg-white dark:bg-black/20 text-center"
+                                                                            />
+                                                                            <span className="text-gray-400">/</span>
+                                                                            <input 
+                                                                                type="number" min="0" max={editLogData.questionsCount}
+                                                                                value={editLogData.correctCount}
+                                                                                onChange={e => setEditLogData({...editLogData, correctCount: parseInt(e.target.value)})}
+                                                                                className="w-12 text-xs p-1 rounded border border-green-500/50 bg-white dark:bg-black/20 text-center"
+                                                                            />
+                                                                        </div>
+                                                                        <span className={`text-[10px] font-bold ${accuracy >= 80 ? 'text-green-500' : accuracy >= 60 ? 'text-yellow-500' : 'text-red-500'}`}>
+                                                                            {accuracy}%
+                                                                        </span>
+                                                                    </div>
+                                                                </td>
+                                                                <td className="p-3 text-right">
+                                                                    <div className="flex justify-end gap-1">
+                                                                        <button onClick={() => saveEditingLog(subject.id)} className="p-1.5 bg-green-100 text-green-700 rounded hover:bg-green-200"><span className="material-symbols-outlined text-[16px]">check</span></button>
+                                                                        <button onClick={cancelEditingLog} className="p-1.5 bg-red-100 text-red-700 rounded hover:bg-red-200"><span className="material-symbols-outlined text-[16px]">close</span></button>
+                                                                    </div>
+                                                                </td>
+                                                            </>
+                                                        ) : (
+                                                            <>
+                                                                <td className="p-3 text-text-secondary-light dark:text-text-secondary-dark text-xs">
+                                                                    {new Date(log.date).toLocaleDateString()}
+                                                                </td>
+                                                                <td className="p-3 font-medium text-text-primary-light dark:text-white">
+                                                                    {log.topicName}
+                                                                </td>
+                                                                <td className="p-3 text-center text-text-secondary-light dark:text-text-secondary-dark font-mono text-xs">
+                                                                    {log.durationMinutes} min
+                                                                </td>
+                                                                <td className="p-3 text-center">
+                                                                    {log.questionsCount > 0 ? (
+                                                                        <div className="flex flex-col">
+                                                                            <span className="text-xs font-bold text-text-primary-light dark:text-white">{log.correctCount} / {log.questionsCount}</span>
+                                                                            <span className={`text-[10px] font-bold ${
+                                                                                (log.correctCount/log.questionsCount) >= 0.8 ? 'text-green-500' : 
+                                                                                (log.correctCount/log.questionsCount) >= 0.6 ? 'text-yellow-500' : 'text-red-500'
+                                                                            }`}>
+                                                                                {Math.round((log.correctCount/log.questionsCount)*100)}%
+                                                                            </span>
+                                                                        </div>
+                                                                    ) : (
+                                                                        <span className="text-xs text-gray-400">-</span>
+                                                                    )}
+                                                                </td>
+                                                                <td className="p-3 text-right">
+                                                                    <div className="flex justify-end gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                                        <button 
+                                                                            onClick={() => startEditingLog(log)}
+                                                                            className="p-1.5 text-blue-500 hover:bg-blue-50 dark:hover:bg-blue-900/20 rounded transition-colors"
+                                                                            title="Editar registro"
+                                                                        >
+                                                                            <span className="material-symbols-outlined text-[16px]">edit</span>
+                                                                        </button>
+                                                                        <button 
+                                                                            onClick={() => onDeleteLog && onDeleteLog(subject.id, log.id)}
+                                                                            className="p-1.5 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 rounded transition-colors"
+                                                                            title="Apagar registro"
+                                                                        >
+                                                                            <span className="material-symbols-outlined text-[16px]">delete</span>
+                                                                        </button>
+                                                                    </div>
+                                                                </td>
+                                                            </>
+                                                        )}
+                                                    </tr>
+                                                );
+                                            })}
+                                        </tbody>
+                                    </table>
+                                )}
+                            </div>
+                        )}
                     </div>
                 </div>
             );
