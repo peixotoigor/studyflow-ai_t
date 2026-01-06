@@ -10,11 +10,15 @@ interface DynamicScheduleProps {
 }
 
 export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUpdateSubject, user, onUpdateUser, errorLogs = [] }) => {
-    // Configurações Locais
+    // Configurações Locais com Try/Catch para Modo Privado
     const [settings, setSettings] = useState(() => {
-        if (typeof window !== 'undefined') {
-            const saved = localStorage.getItem('studyflow_schedule_settings');
-            if (saved) return JSON.parse(saved);
+        try {
+            if (typeof window !== 'undefined') {
+                const saved = localStorage.getItem('studyflow_schedule_settings');
+                if (saved) return JSON.parse(saved);
+            }
+        } catch (e) {
+            console.warn("Storage bloqueado: usando configurações padrão.");
         }
         return { 
             subjectsPerDay: 2, 
@@ -32,7 +36,9 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
     const updateSetting = (key: string, value: any) => {
         setSettings(prev => {
             const newSettings = { ...prev, [key]: value };
-            localStorage.setItem('studyflow_schedule_settings', JSON.stringify(newSettings));
+            try {
+                localStorage.setItem('studyflow_schedule_settings', JSON.stringify(newSettings));
+            } catch (e) {}
             return newSettings;
         });
     };
@@ -63,23 +69,25 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
 
     const activeSubjects = subjects.filter(s => s.active);
 
-    // Seleção manual de matérias para o plano (Filtro)
+    // Seleção manual de matérias para o plano (Filtro) com Try/Catch
     const [selectedSubjectIds, setSelectedSubjectIds] = useState<Set<string>>(() => {
-        if (typeof window !== 'undefined') {
-            const savedSelection = localStorage.getItem('studyflow_schedule_selection');
-            if (savedSelection) {
-                try {
+        try {
+            if (typeof window !== 'undefined') {
+                const savedSelection = localStorage.getItem('studyflow_schedule_selection');
+                if (savedSelection) {
                     const parsed = JSON.parse(savedSelection);
                     return new Set(parsed);
-                } catch (e) { console.error(e); }
+                }
             }
-        }
+        } catch (e) {}
         return new Set(subjects.filter(s => s.active).map(s => s.id));
     });
 
     useEffect(() => {
-        const selectionArray = Array.from(selectedSubjectIds);
-        localStorage.setItem('studyflow_schedule_selection', JSON.stringify(selectionArray));
+        try {
+            const selectionArray = Array.from(selectedSubjectIds);
+            localStorage.setItem('studyflow_schedule_selection', JSON.stringify(selectionArray));
+        } catch (e) {}
     }, [selectedSubjectIds]);
 
     // Sincroniza seleção com novas matérias ativas

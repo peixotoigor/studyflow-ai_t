@@ -21,6 +21,32 @@ const AUTO_COLORS = [
     'blue', 'orange', 'green', 'purple', 'red', 'teal', 'pink', 'indigo', 'cyan', 'rose', 'violet', 'emerald', 'amber', 'fuchsia', 'sky', 'lime'
 ];
 
+// --- UTILS DE ARMAZENAMENTO SEGURO (Prevenção de Crash em Modo Privado) ---
+const safeGet = (key: string, fallback: any = null) => {
+    try {
+        const item = localStorage.getItem(key);
+        return item ? item : fallback;
+    } catch (e) {
+        return fallback;
+    }
+};
+
+const safeSet = (key: string, value: string) => {
+    try {
+        localStorage.setItem(key, value);
+    } catch (e) {
+        console.warn(`Storage quota exceeded or blocked for ${key}`);
+    }
+};
+
+const safeRemove = (key: string) => {
+    try {
+        localStorage.removeItem(key);
+    } catch (e) {
+        // Ignore
+    }
+};
+
 // --- SECURITY UTILS ---
 const encrypt = (text?: string) => {
     if (!text) return '';
@@ -35,12 +61,12 @@ const decrypt = (text?: string) => {
     return text; 
 };
 
-const fromBase64 = (str: string) => {
-    try { return decodeURIComponent(escape(atob(str))); } catch(e) { return atob(str); }
-};
-
 // Função de Descriptografia AES-GCM (Nativa)
 const decryptVault = async (encryptedBase64: string, password: string) => {
+    if (!window.crypto || !window.crypto.subtle) {
+        // Fallback gracioso ou erro explícito
+        throw new Error("Criptografia indisponível neste navegador/contexto.");
+    }
     try {
         const encryptedBytes = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
         const salt = encryptedBytes.slice(0, 16);
@@ -70,35 +96,32 @@ function App() {
   const [isVaultLocked, setIsVaultLocked] = useState(false);
   const [vaultEncryptedData, setVaultEncryptedData] = useState<string | null>(null);
   const [vaultPasswordInput, setVaultPasswordInput] = useState('');
-  const [showVaultPassword, setShowVaultPassword] = useState(false); // Novo estado para visibilidade da senha
+  const [showVaultPassword, setShowVaultPassword] = useState(false); 
   const [vaultError, setVaultError] = useState('');
   const [checkingVault, setCheckingVault] = useState(true);
   
   // Auto-Save State (SYNCING = Baixando, SAVING = Subindo)
   const [syncState, setSyncState] = useState<'IDLE' | 'SAVING' | 'SAVED' | 'ERROR' | 'SYNCING'>('IDLE');
   
-  // Flag para evitar loop de save ao restaurar
   const isRestoring = useRef(false);
 
   // --- User State Management ---
   const [user, setUser] = useState<UserProfile>(() => {
-    if (typeof window !== 'undefined') {
-        try {
-            const savedUser = localStorage.getItem('studyflow_user');
-            if (savedUser) {
-                const parsed = JSON.parse(savedUser);
-                return {
-                    ...parsed,
-                    openAiApiKey: decrypt(parsed.openAiApiKey) || '',
-                    openAiModel: parsed.openAiModel || 'gpt-4o-mini',
-                    dailyAvailableTimeMinutes: parsed.dailyAvailableTimeMinutes || 240,
-                    githubToken: decrypt(parsed.githubToken) || '',
-                    backupGistId: parsed.backupGistId || ''
-                };
-            }
-        } catch (error) {
-            console.error("Erro ao carregar usuário do localStorage:", error);
+    try {
+        const savedUser = safeGet('studyflow_user');
+        if (savedUser) {
+            const parsed = JSON.parse(savedUser);
+            return {
+                ...parsed,
+                openAiApiKey: decrypt(parsed.openAiApiKey) || '',
+                openAiModel: parsed.openAiModel || 'gpt-4o-mini',
+                dailyAvailableTimeMinutes: parsed.dailyAvailableTimeMinutes || 240,
+                githubToken: decrypt(parsed.githubToken) || '',
+                backupGistId: parsed.backupGistId || ''
+            };
         }
+    } catch (error) {
+        console.error("Erro ao inicializar usuário:", error);
     }
     return {
         name: 'Alex Lima',
@@ -114,21 +137,20 @@ function App() {
 
   // --- DATA STATES ---
   const [plans, setPlans] = useState<StudyPlan[]>(() => {
-      if (typeof window !== 'undefined') {
-          const saved = localStorage.getItem('studyflow_plans');
+      try {
+          const saved = safeGet('studyflow_plans');
           if (saved) return JSON.parse(saved).map((p: any) => ({ ...p, createdAt: new Date(p.createdAt) }));
-      }
+      } catch(e) {}
       return [{ id: DEFAULT_PLAN_ID, name: 'Plano Principal', color: 'blue', createdAt: new Date() }];
   });
 
   const [currentPlanId, setCurrentPlanId] = useState<string>(() => {
-      if (typeof window !== 'undefined') return localStorage.getItem('studyflow_current_plan') || DEFAULT_PLAN_ID;
-      return DEFAULT_PLAN_ID;
+      return safeGet('studyflow_current_plan', DEFAULT_PLAN_ID);
   });
 
   const [subjects, setSubjects] = useState<Subject[]>(() => {
-      if (typeof window !== 'undefined') {
-          const saved = localStorage.getItem('studyflow_subjects');
+      try {
+          const saved = safeGet('studyflow_subjects');
           if (saved) {
               const parsed = JSON.parse(saved);
               return parsed.map((s: any) => ({
@@ -137,17 +159,17 @@ function App() {
                   logs: s.logs ? s.logs.map((l: any) => ({ ...l, date: new Date(l.date) })) : []
               }));
           }
-      }
+      } catch(e) {}
       return INITIAL_SUBJECTS;
   });
 
   const currentPlanSubjects = subjects.filter(s => s.planId === currentPlanId);
 
   const [errorLogs, setErrorLogs] = useState<ErrorLog[]>(() => {
-      if (typeof window !== 'undefined') {
-          const saved = localStorage.getItem('studyflow_errors');
+      try {
+          const saved = safeGet('studyflow_errors');
           if (saved) return JSON.parse(saved).map((l: any) => ({ ...l, createdAt: new Date(l.createdAt) }));
-      }
+      } catch(e) {}
       return [];
   });
 
@@ -157,31 +179,31 @@ function App() {
   });
 
   const [simulatedExams, setSimulatedExams] = useState<SimulatedExam[]>(() => {
-      if (typeof window !== 'undefined') {
-          const saved = localStorage.getItem('studyflow_simulated_exams');
+      try {
+          const saved = safeGet('studyflow_simulated_exams');
           if (saved) return JSON.parse(saved).map((e: any) => ({ ...e, date: new Date(e.date) }));
-      }
+      } catch(e) {}
       return [];
   });
 
   const currentPlanExams = simulatedExams.filter(e => e.planId === currentPlanId || e.planId === 'current');
 
   const [savedNotes, setSavedNotes] = useState<SavedNote[]>(() => {
-      if (typeof window !== 'undefined') {
-          const saved = localStorage.getItem('studyflow_saved_notes');
+      try {
+          const saved = safeGet('studyflow_saved_notes');
           if (saved) return JSON.parse(saved).map((n: any) => ({ ...n, createdAt: new Date(n.createdAt) }));
-      }
+      } catch(e) {}
       return [];
   });
 
   const [importerState, setImporterState] = useState<ImporterState>(() => {
-      if (typeof window !== 'undefined') {
-          const saved = localStorage.getItem('studyflow_importer');
+      try {
+          const saved = safeGet('studyflow_importer');
           if (saved) {
               const parsed = JSON.parse(saved);
               return { ...parsed, selectedSubjects: new Set(parsed.selectedSubjects || []) };
           }
-      }
+      } catch(e) {}
       return { step: 'UPLOAD', fileName: '', processingStatus: '', progress: 0, syllabus: null, selectedSubjects: new Set() };
   });
 
@@ -189,7 +211,7 @@ function App() {
   useEffect(() => {
       const checkVault = async () => {
           try {
-              let encryptedData: string | null = localStorage.getItem('studyflow_secure_vault');
+              let encryptedData: string | null = safeGet('studyflow_secure_vault');
 
               // Se não achou local, tenta remoto
               if (!encryptedData) {
@@ -199,7 +221,8 @@ function App() {
                           const json = await response.json();
                           if (json.data) {
                               encryptedData = json.data;
-                              localStorage.setItem('studyflow_secure_vault', json.data);
+                              // Tenta salvar localmente para próximas vezes
+                              safeSet('studyflow_secure_vault', json.data);
                           }
                       }
                   } catch (e) { console.log("Sem cofre remoto."); }
@@ -209,12 +232,11 @@ function App() {
               if (encryptedData) {
                   setVaultEncryptedData(encryptedData);
                   
-                  // TENTA AUTO-UNLOCK VIA SESSION STORAGE
-                  const sessionPass = sessionStorage.getItem('studyflow_session_pass');
-                  if (sessionPass) {
-                      try {
+                  // TENTA AUTO-UNLOCK VIA SESSION STORAGE (Se disponível)
+                  try {
+                      const sessionPass = sessionStorage.getItem('studyflow_session_pass');
+                      if (sessionPass) {
                           const decryptedData = await decryptVault(encryptedData, sessionPass);
-                          // Atualiza user com as chaves
                           setUser(prev => ({
                               ...prev,
                               openAiApiKey: decryptedData.openAiApiKey || prev.openAiApiKey,
@@ -224,9 +246,9 @@ function App() {
                           setIsVaultLocked(false);
                           setCheckingVault(false);
                           return;
-                      } catch (e) {
-                          sessionStorage.removeItem('studyflow_session_pass');
                       }
+                  } catch (e) {
+                      sessionStorage.removeItem('studyflow_session_pass');
                   }
                   setIsVaultLocked(true); 
               } else {
@@ -234,6 +256,8 @@ function App() {
               }
           } catch (e) {
               console.log("Erro ao verificar cofre.");
+              // Em caso de erro crítico (ex: localStorage bloqueado), assume sem vault para não travar
+              setIsVaultLocked(false);
           } finally {
               setCheckingVault(false);
           }
@@ -243,20 +267,16 @@ function App() {
   }, []);
 
   // --- AUTO SAVE LOGIC ---
-  const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const autoSaveTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Função centralizada de salvamento - Agora aceita override de user para saves imediatos
   const performAutoSave = async (manualUserOverride?: UserProfile) => {
       try {
-          // Usa o usuário passado manualmente OU o estado atual
-          // Isso corrige o delay do useState quando chamado pelo ProfileModal
           const userToSave = manualUserOverride || user;
 
           if (!userToSave.githubToken || !userToSave.backupGistId) return;
           if (syncState === 'SYNCING') return; 
           
           setSyncState('SAVING');
-          console.log("Iniciando backup para Gist:", userToSave.backupGistId);
 
           const backupData = {
               version: 2,
@@ -265,7 +285,6 @@ function App() {
               plans,
               currentPlanId,
               errors: errorLogs,
-              // User data sync: EXPLICITAMENTE CONSTRUÍDO para evitar referências antigas
               user: { 
                   name: userToSave.name,
                   email: userToSave.email,
@@ -277,11 +296,11 @@ function App() {
               }, 
               simulatedExams,
               savedNotes,
-              scheduleSettings: JSON.parse(localStorage.getItem('studyflow_schedule_settings') || '{}'),
-              scheduleSelection: JSON.parse(localStorage.getItem('studyflow_schedule_selection') || '[]'),
-              importerState: JSON.parse(localStorage.getItem('studyflow_importer') || 'null'),
-              playerState: JSON.parse(localStorage.getItem('studyflow_player_state') || 'null'),
-              expandedSubjectId: localStorage.getItem('studyflow_expanded_subject_id') || null
+              scheduleSettings: JSON.parse(safeGet('studyflow_schedule_settings') || '{}'),
+              scheduleSelection: JSON.parse(safeGet('studyflow_schedule_selection') || '[]'),
+              importerState: JSON.parse(safeGet('studyflow_importer') || 'null'),
+              playerState: JSON.parse(safeGet('studyflow_player_state') || 'null'),
+              expandedSubjectId: safeGet('studyflow_expanded_subject_id') || null
           };
 
           const fileName = "studyflow_backup.json";
@@ -300,7 +319,6 @@ function App() {
           });
 
           setSyncState('SAVED');
-          console.log("Backup concluído com sucesso.");
           setTimeout(() => setSyncState('IDLE'), 3000); 
           
       } catch (e) {
@@ -318,30 +336,24 @@ function App() {
 
       autoSaveTimeoutRef.current = setTimeout(async () => {
           await performAutoSave();
-      }, 2000); // Debounce padrão para outras mudanças
+      }, 2000); 
 
       return () => {
           if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
       };
   }, [subjects, plans, errorLogs, simulatedExams, savedNotes, currentPlanId, user]); 
 
-  // Wrapper para atualizar usuário e forçar save IMEDIATO
   const handleUpdateUser = (updatedUser: UserProfile) => {
       setUser(updatedUser);
-      // Se houver credenciais, força o backup agora mesmo, sem esperar o debounce
       if (updatedUser.backupGistId && updatedUser.githubToken) {
-          console.log("Forçando salvamento de perfil imediato...");
           performAutoSave(updatedUser);
       }
   };
 
-  // Funcao de Restore Atualizada
   const handleRestoreData = async (gistId: string, token: string, silent = false, forcedKeys?: Partial<UserProfile>) => {
         try {
             isRestoring.current = true; 
             if (silent) setSyncState('SYNCING');
-
-            console.log("Baixando dados do Gist:", gistId);
 
             const response = await fetch(`https://api.github.com/gists/${gistId}`, {
                 headers: { 'Authorization': `token ${token}` }
@@ -354,7 +366,6 @@ function App() {
             if (!fileKey) throw new Error("Arquivo de backup inválido.");
             
             const content = JSON.parse(data.files[fileKey].content);
-            console.log("Conteúdo do Backup Recebido (User):", content.user);
             
             if (content.subjects) {
                 const hydratedSubjects = content.subjects.map((s: any) => ({
@@ -369,30 +380,22 @@ function App() {
             if (content.savedNotes) setSavedNotes(content.savedNotes.map((n: any) => ({ ...n, createdAt: new Date(n.createdAt) })));
             if (content.currentPlanId) setCurrentPlanId(content.currentPlanId);
             
-            // Restauração Robusta do Perfil
             if (content.user) {
                 setUser(prev => {
-                    // 1. Começa com o estado anterior
-                    // 2. Sobrescreve com TUDO que veio da nuvem (nome, avatar, email...)
-                    // O spread operator garante que content.user.name sobrescreva prev.name
                     const mergedUser = { ...prev, ...content.user };
-                    
-                    // 3. Reaplica as chaves de segurança (que não vêm da nuvem, ou vêm vazias)
+                    // Re-apply keys from vault (forcedKeys) to ensure they are not overwritten by empty backup
                     if (forcedKeys) {
                         mergedUser.openAiApiKey = forcedKeys.openAiApiKey || prev.openAiApiKey;
                         mergedUser.githubToken = forcedKeys.githubToken || prev.githubToken;
                         mergedUser.backupGistId = forcedKeys.backupGistId || prev.backupGistId;
                     } else {
-                        // Se não tem forcedKeys, mantém as locais se existirem
+                        // Maintain current keys if not provided in backup
                         mergedUser.openAiApiKey = prev.openAiApiKey;
                         mergedUser.githubToken = prev.githubToken;
                         mergedUser.backupGistId = prev.backupGistId;
                     }
-                    
                     return mergedUser;
                 });
-            } else {
-                console.warn("Objeto 'user' não encontrado no backup. Usando perfil local.");
             }
             
             if (!silent) alert("Dados restaurados com sucesso!");
@@ -400,7 +403,6 @@ function App() {
             setTimeout(() => setSyncState('IDLE'), 3000);
 
         } catch (e: any) {
-            console.error("Restore error:", e);
             if (!silent) alert("Erro ao restaurar: " + e.message);
             setSyncState('ERROR');
         } finally {
@@ -418,9 +420,10 @@ function App() {
       try {
           const decryptedData = await decryptVault(vaultEncryptedData, vaultPasswordInput);
           
-          sessionStorage.setItem('studyflow_session_pass', vaultPasswordInput);
+          try {
+              sessionStorage.setItem('studyflow_session_pass', vaultPasswordInput);
+          } catch (e) {}
 
-          // Atualiza chaves localmente imediatamente
           setUser(prev => ({
               ...prev,
               openAiApiKey: decryptedData.openAiApiKey || prev.openAiApiKey,
@@ -430,17 +433,15 @@ function App() {
           
           setIsVaultLocked(false);
 
-          // Lógica de Sync Automático (Pull)
+          // AUTO-SYNC ON UNLOCK: Se tiver credenciais, puxa os dados imediatamente
           const hasBackupCreds = decryptedData.backupGistId && decryptedData.githubToken;
           
-          // Sempre tenta puxar se tiver credenciais, para garantir que estamos atualizados
-          // ou use isFreshSession se preferir não sobrescrever trabalho local recente não salvo
+          // Sempre tenta sincronizar se tiver credenciais (não só fresh session), 
+          // mas cuidado para não sobrescrever trabalho não salvo se LocalStorage estiver funcionando.
+          // Em modo privado (sem LocalStorage), subjects.length será 0, então é seguro.
           const isFreshSession = subjects.length === 0; 
 
           if (hasBackupCreds && isFreshSession) {
-              console.log("Sessão limpa detectada. Baixando dados da nuvem...");
-              // Passa as chaves descriptografadas explicitamente para garantir que o restore as use e não perca
-              // IMPORTANTE: await aqui garante que checkingVault fique true até acabar
               await handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken, true, decryptedData);
           }
           
@@ -448,35 +449,34 @@ function App() {
           
       } catch (err) {
           console.error(err);
-          setVaultError("Senha incorreta ou cofre corrompido.");
+          setVaultError(err instanceof Error ? err.message : "Senha incorreta ou cofre corrompido.");
       } finally {
           setCheckingVault(false);
       }
   };
 
-  // Persistence Effects (LocalStorage)
-  useEffect(() => { localStorage.setItem('studyflow_subjects', JSON.stringify(subjects)); }, [subjects]);
-  useEffect(() => { localStorage.setItem('studyflow_errors', JSON.stringify(errorLogs)); }, [errorLogs]);
-  useEffect(() => { localStorage.setItem('studyflow_plans', JSON.stringify(plans)); }, [plans]);
-  useEffect(() => { localStorage.setItem('studyflow_current_plan', currentPlanId); }, [currentPlanId]);
-  useEffect(() => { localStorage.setItem('studyflow_simulated_exams', JSON.stringify(simulatedExams)); }, [simulatedExams]);
-  useEffect(() => { localStorage.setItem('studyflow_saved_notes', JSON.stringify(savedNotes)); }, [savedNotes]);
+  // Persistence Effects (Use safeSet to avoid private mode crashes)
+  useEffect(() => { safeSet('studyflow_subjects', JSON.stringify(subjects)); }, [subjects]);
+  useEffect(() => { safeSet('studyflow_errors', JSON.stringify(errorLogs)); }, [errorLogs]);
+  useEffect(() => { safeSet('studyflow_plans', JSON.stringify(plans)); }, [plans]);
+  useEffect(() => { safeSet('studyflow_current_plan', currentPlanId); }, [currentPlanId]);
+  useEffect(() => { safeSet('studyflow_simulated_exams', JSON.stringify(simulatedExams)); }, [simulatedExams]);
+  useEffect(() => { safeSet('studyflow_saved_notes', JSON.stringify(savedNotes)); }, [savedNotes]);
   useEffect(() => {
       const stateToSave = { ...importerState, selectedSubjects: Array.from(importerState.selectedSubjects) };
-      localStorage.setItem('studyflow_importer', JSON.stringify(stateToSave));
+      safeSet('studyflow_importer', JSON.stringify(stateToSave));
   }, [importerState]);
 
   useEffect(() => {
-    const isVaultActive = !!localStorage.getItem('studyflow_secure_vault');
+    const isVaultActive = !!safeGet('studyflow_secure_vault');
     const secureUser = {
         ...user,
         openAiApiKey: isVaultActive ? '' : encrypt(user.openAiApiKey),
         githubToken: isVaultActive ? '' : encrypt(user.githubToken)
     };
-    localStorage.setItem('studyflow_user', JSON.stringify(secureUser));
+    safeSet('studyflow_user', JSON.stringify(secureUser));
   }, [user]);
 
-  // Handlers (Simplified)
   const handleAddPlan = (name: string) => {
       const newPlan: StudyPlan = { id: `plan-${Date.now()}`, name, color: 'blue', createdAt: new Date() };
       setPlans(prev => [...prev, newPlan]);
@@ -503,7 +503,7 @@ function App() {
       setSubjects(prev => [...prev, ...newSubjects.map(s => ({ ...s, planId: currentPlanId }))]);
       const reset = { step: 'UPLOAD', fileName: '', processingStatus: '', progress: 0, syllabus: null, selectedSubjects: new Set() };
       setImporterState(reset as ImporterState);
-      localStorage.setItem('studyflow_importer', JSON.stringify({ ...reset, selectedSubjects: [] }));
+      safeSet('studyflow_importer', JSON.stringify({ ...reset, selectedSubjects: [] }));
       setCurrentScreen(Screen.SUBJECTS);
   };
   
@@ -531,11 +531,10 @@ function App() {
       }));
   };
 
-  const [theme, setTheme] = useState(() => (typeof window !== 'undefined' ? localStorage.getItem('theme') || 'light' : 'light'));
-  useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark'); localStorage.setItem('theme', theme); }, [theme]);
+  const [theme, setTheme] = useState(() => (typeof window !== 'undefined' ? safeGet('theme', 'light') : 'light'));
+  useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark'); safeSet('theme', theme); }, [theme]);
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
 
-  // --- RENDER ---
   const renderScreen = () => {
     if (isVaultLocked) {
         return (
@@ -618,7 +617,6 @@ function App() {
                          {plans.find(p => p.id === currentPlanId)?.name || 'Plano'}
                      </span>
                  </div>
-                 {/* Auto-Save Indicator */}
                  {user.backupGistId && (
                      <div className={`hidden md:flex items-center gap-2 text-[10px] font-bold px-2 py-1 rounded transition-all ${syncState === 'SAVING' ? 'bg-yellow-50 text-yellow-600' : syncState === 'SAVED' ? 'bg-green-50 text-green-600' : syncState === 'ERROR' ? 'bg-red-50 text-red-600' : syncState === 'SYNCING' ? 'bg-blue-50 text-blue-600' : 'text-gray-400 opacity-50'}`}>
                          {syncState === 'SAVING' && <span className="material-symbols-outlined text-[12px] animate-spin">sync</span>}

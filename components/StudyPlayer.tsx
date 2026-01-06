@@ -46,9 +46,13 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
     // Novo Estado de Modalidade
     const [selectedModality, setSelectedModality] = useState<StudyModality>('PDF');
 
-    // --- CARREGAR ESTADO PERSISTIDO ---
+    // --- CARREGAR ESTADO PERSISTIDO (SAFE) ---
     useEffect(() => {
-        const savedState = localStorage.getItem('studyflow_player_state');
+        let savedState = null;
+        try {
+            savedState = localStorage.getItem('studyflow_player_state');
+        } catch(e) {}
+
         if (savedState) {
             try {
                 const parsed: PersistedPlayerState = JSON.parse(savedState);
@@ -78,19 +82,21 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         generateDailyQueue();
     }, [subjects, dailyAvailableTime]);
 
-    // --- SALVAR ESTADO PERSISTIDO (Auto-save) ---
+    // --- SALVAR ESTADO PERSISTIDO (Auto-save SAFE) ---
     useEffect(() => {
-        if (todaysQueue.length > 0) {
-            const stateToSave: PersistedPlayerState = {
-                todaysQueue,
-                currentItemIndex,
-                timeLeft,
-                initialTime,
-                elapsedTime,
-                date: new Date().toISOString().split('T')[0]
-            };
-            localStorage.setItem('studyflow_player_state', JSON.stringify(stateToSave));
-        }
+        try {
+            if (todaysQueue.length > 0) {
+                const stateToSave: PersistedPlayerState = {
+                    todaysQueue,
+                    currentItemIndex,
+                    timeLeft,
+                    initialTime,
+                    elapsedTime,
+                    date: new Date().toISOString().split('T')[0]
+                };
+                localStorage.setItem('studyflow_player_state', JSON.stringify(stateToSave));
+            }
+        } catch (e) {}
     }, [todaysQueue, currentItemIndex, timeLeft, initialTime, elapsedTime]);
 
     // --- AUDIO ALARM ---
@@ -206,19 +212,21 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
             setTimeLeft(nextDur);
             setInitialTime(nextDur);
 
-            const stateToSave: PersistedPlayerState = {
-                todaysQueue,
-                currentItemIndex: nextIndex,
-                timeLeft: nextDur,
-                initialTime: nextDur,
-                elapsedTime: 0,
-                date: new Date().toISOString().split('T')[0]
-            };
-            localStorage.setItem('studyflow_player_state', JSON.stringify(stateToSave));
+            try {
+                const stateToSave: PersistedPlayerState = {
+                    todaysQueue,
+                    currentItemIndex: nextIndex,
+                    timeLeft: nextDur,
+                    initialTime: nextDur,
+                    elapsedTime: 0,
+                    date: new Date().toISOString().split('T')[0]
+                };
+                localStorage.setItem('studyflow_player_state', JSON.stringify(stateToSave));
+            } catch(e) {}
 
         } else {
             alert("Parabéns! Você completou a fila de hoje.");
-            localStorage.removeItem('studyflow_player_state');
+            try { localStorage.removeItem('studyflow_player_state'); } catch(e) {}
             setTodaysQueue([]);
         }
     };

@@ -106,12 +106,14 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
             setVaultPassword('');
             setCloudStatus('');
             
-            // Check if vault exists (locally)
-            const localVault = localStorage.getItem('studyflow_secure_vault');
-            setIsVaultActive(!!localVault);
-            
-            const savedDate = localStorage.getItem('studyflow_last_backup_date');
-            if (savedDate) setLastBackupDate(new Date(savedDate).toLocaleString());
+            // Check if vault exists (locally) with Try/Catch
+            try {
+                const localVault = localStorage.getItem('studyflow_secure_vault');
+                setIsVaultActive(!!localVault);
+                
+                const savedDate = localStorage.getItem('studyflow_last_backup_date');
+                if (savedDate) setLastBackupDate(new Date(savedDate).toLocaleString());
+            } catch(e) {}
             
             // Tentar inferir o nome do repositório se estiver rodando no GitHub Pages
             if (window.location.hostname.includes('github.io')) {
@@ -202,12 +204,10 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
         
         // --- AUTO UPDATE VAULT (SECURITY) ---
         // Se o cofre estiver ativo, precisamos re-criptografar as NOVAS chaves com a senha da sessão.
-        // Se não fizermos isso, o localStorage.setItem(user) do App.tsx vai apagar as chaves (por segurança)
-        // e o cofre antigo ainda terá as chaves VELHAS.
         if (isVaultActive) {
-            const sessionPass = sessionStorage.getItem('studyflow_session_pass');
-            if (sessionPass) {
-                try {
+            try {
+                const sessionPass = sessionStorage.getItem('studyflow_session_pass');
+                if (sessionPass) {
                     const dataToEncrypt = JSON.stringify({
                         openAiApiKey: finalApiKey,
                         githubToken: finalGithubToken,
@@ -215,19 +215,22 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                     });
                     
                     const newVaultString = await generateVaultString(dataToEncrypt, sessionPass);
-                    localStorage.setItem('studyflow_secure_vault', newVaultString);
-                    console.log("Cofre local atualizado automaticamente com as novas chaves.");
                     
-                    // Aviso se mudou chaves importantes e tem cofre na nuvem configurado (mas não estamos atualizando a nuvem automaticamente aqui)
-                    if (repoName && (githubTokenInput || apiKeyInput)) {
-                        alert("Chaves atualizadas localmente! \n\nIMPORTANTE: Para atualizar o 'vault.json' no seu GitHub, vá até a aba Segurança e clique em 'Salvar na Nuvem' novamente.");
+                    try {
+                        localStorage.setItem('studyflow_secure_vault', newVaultString);
+                        console.log("Cofre local atualizado automaticamente com as novas chaves.");
+                        
+                        if (repoName && (githubTokenInput || apiKeyInput)) {
+                            alert("Chaves atualizadas localmente! \n\nIMPORTANTE: Para atualizar o 'vault.json' no seu GitHub, vá até a aba Segurança e clique em 'Salvar na Nuvem' novamente.");
+                        }
+                    } catch (e) {
+                        console.warn("Não foi possível atualizar o cofre local (Storage bloqueado).");
                     }
-                } catch (e) {
-                    console.error("Erro ao atualizar cofre:", e);
-                    alert("Erro ao atualizar o cofre seguro. Por favor, reconfigure na aba Segurança.");
+                } else {
+                    alert("Atenção: O cofre está ativo mas a senha da sessão expirou. Suas novas chaves NÃO foram protegidas no cofre. \n\nPor favor, vá na aba Segurança e recrie o cofre.");
                 }
-            } else {
-                alert("Atenção: O cofre está ativo mas a senha da sessão expirou. Suas novas chaves NÃO foram protegidas no cofre. \n\nPor favor, vá na aba Segurança e recrie o cofre.");
+            } catch (e) {
+                // Ignore session storage errors
             }
         }
 
@@ -265,15 +268,17 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
             
             // 2. Salva
             if (target === 'LOCAL') {
-                localStorage.setItem('studyflow_secure_vault', encryptedString);
+                try {
+                    localStorage.setItem('studyflow_secure_vault', encryptedString);
+                    // Limpa do armazenamento inseguro
+                    const currentUser = JSON.parse(localStorage.getItem('studyflow_user') || '{}');
+                    const sanitizedUser = { ...currentUser, openAiApiKey: '', githubToken: '' };
+                    localStorage.setItem('studyflow_user', JSON.stringify(sanitizedUser));
+                } catch(e) {
+                    alert("Atenção: O armazenamento local está bloqueado. O cofre funcionará apenas nesta sessão se você não salvá-lo na nuvem.");
+                }
                 
-                // Salva senha na sessão para permitir updates futuros sem redigitar
-                sessionStorage.setItem('studyflow_session_pass', vaultPassword);
-                
-                // Limpa do armazenamento inseguro
-                const currentUser = JSON.parse(localStorage.getItem('studyflow_user') || '{}');
-                const sanitizedUser = { ...currentUser, openAiApiKey: '', githubToken: '' };
-                localStorage.setItem('studyflow_user', JSON.stringify(sanitizedUser));
+                try { sessionStorage.setItem('studyflow_session_pass', vaultPassword); } catch(e){}
 
                 setIsVaultActive(true);
                 alert("Cofre Local criado! Suas chaves estão protegidas neste navegador.");
@@ -323,8 +328,11 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                 setVaultPassword('');
                 
                 // Também ativa localmente para consistência
-                localStorage.setItem('studyflow_secure_vault', encryptedString);
-                sessionStorage.setItem('studyflow_session_pass', vaultPassword);
+                try {
+                    localStorage.setItem('studyflow_secure_vault', encryptedString);
+                } catch(e) {}
+                try { sessionStorage.setItem('studyflow_session_pass', vaultPassword); } catch(e){}
+                
                 setIsVaultActive(true);
             }
 
@@ -339,7 +347,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
 
     const handleRemoveLocalVault = () => {
         if (!window.confirm("Tem certeza? Isso removerá a proteção por senha neste navegador.")) return;
-        localStorage.removeItem('studyflow_secure_vault');
+        try { localStorage.removeItem('studyflow_secure_vault'); } catch(e) {}
         setIsVaultActive(false);
         alert("Proteção local removida.");
     };
@@ -382,26 +390,31 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
         setSyncStatus("Preparando dados...");
 
         try {
+            // Tenta ler do localStorage, se falhar usa objetos vazios
+            const getSafe = (k: string) => { try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch { return []; } };
+            const getSafeObj = (k: string) => { try { return JSON.parse(localStorage.getItem(k) || '{}'); } catch { return {}; } };
+            const getSafeStr = (k: string) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
+
             const backupData = {
                 version: 2,
                 timestamp: new Date().toISOString(),
-                subjects: JSON.parse(localStorage.getItem('studyflow_subjects') || '[]'),
-                plans: JSON.parse(localStorage.getItem('studyflow_plans') || '[]'),
-                currentPlanId: localStorage.getItem('studyflow_current_plan') || '',
-                errors: JSON.parse(localStorage.getItem('studyflow_errors') || '[]'),
+                subjects: getSafe('studyflow_subjects'),
+                plans: getSafe('studyflow_plans'),
+                currentPlanId: getSafeStr('studyflow_current_plan'),
+                errors: getSafe('studyflow_errors'),
                 // SEGURANÇA: Remover chaves do backup na nuvem (Gist)
                 user: { 
                     ...user, 
                     githubToken: undefined, 
                     openAiApiKey: undefined 
                 }, 
-                simulatedExams: JSON.parse(localStorage.getItem('studyflow_simulated_exams') || '[]'),
-                savedNotes: JSON.parse(localStorage.getItem('studyflow_saved_notes') || '[]'),
-                scheduleSettings: JSON.parse(localStorage.getItem('studyflow_schedule_settings') || '{}'),
-                scheduleSelection: JSON.parse(localStorage.getItem('studyflow_schedule_selection') || '[]'),
-                importerState: JSON.parse(localStorage.getItem('studyflow_importer') || 'null'),
-                playerState: JSON.parse(localStorage.getItem('studyflow_player_state') || 'null'),
-                expandedSubjectId: localStorage.getItem('studyflow_expanded_subject_id') || null
+                simulatedExams: getSafe('studyflow_simulated_exams'),
+                savedNotes: getSafe('studyflow_saved_notes'),
+                scheduleSettings: getSafeObj('studyflow_schedule_settings'),
+                scheduleSelection: getSafe('studyflow_schedule_selection'),
+                importerState: getSafeObj('studyflow_importer'),
+                playerState: getSafeObj('studyflow_player_state'),
+                expandedSubjectId: getSafeStr('studyflow_expanded_subject_id') || null
             };
 
             const fileName = "studyflow_backup.json";
@@ -424,7 +437,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
             setSyncStatus("Backup realizado com sucesso! ✅");
             
             const now = new Date();
-            localStorage.setItem('studyflow_last_backup_date', now.toISOString());
+            try { localStorage.setItem('studyflow_last_backup_date', now.toISOString()); } catch(e){}
             setLastBackupDate(now.toLocaleString());
 
         } catch (error: any) {
@@ -451,11 +464,15 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
             if (!fileKey) throw new Error("Arquivo de backup não encontrado.");
             const content = JSON.parse(data.files[fileKey].content);
 
-            if (content.subjects) localStorage.setItem('studyflow_subjects', JSON.stringify(content.subjects));
+            // Tenta salvar localmente com proteção
+            const safeSave = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch(e) {} };
+
+            if (content.subjects) safeSave('studyflow_subjects', JSON.stringify(content.subjects));
             if (content.user) {
-                const currentUser = JSON.parse(localStorage.getItem('studyflow_user') || '{}');
+                let currentUser = {};
+                try { currentUser = JSON.parse(localStorage.getItem('studyflow_user') || '{}'); } catch(e){}
                 const mergedUser = { ...content.user, githubToken: tokenToUse, backupGistId: backupGistId };
-                localStorage.setItem('studyflow_user', JSON.stringify(mergedUser));
+                safeSave('studyflow_user', JSON.stringify(mergedUser));
             }
             
             setSyncStatus("Restauração completa! Recarregando...");

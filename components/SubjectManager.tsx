@@ -32,11 +32,13 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     apiKey,
     model = 'gpt-4o-mini'
 }) => {
-    // Persistência da disciplina expandida
+    // Persistência da disciplina expandida com proteção Try/Catch
     const [expandedSubjectId, setExpandedSubjectId] = useState<string | null>(() => {
-        if (typeof window !== 'undefined') {
-            return localStorage.getItem('studyflow_expanded_subject_id');
-        }
+        try {
+            if (typeof window !== 'undefined') {
+                return localStorage.getItem('studyflow_expanded_subject_id');
+            }
+        } catch (e) {}
         return null;
     });
 
@@ -62,19 +64,26 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
 
     // Efeito para selecionar automaticamente apenas se não houver salvo e tiver dados
     useEffect(() => {
-        if (subjects.length > 0 && expandedSubjectId === null && !localStorage.getItem('studyflow_expanded_subject_id')) {
+        let hasSaved = false;
+        try {
+            hasSaved = !!localStorage.getItem('studyflow_expanded_subject_id');
+        } catch(e) {}
+
+        if (subjects.length > 0 && expandedSubjectId === null && !hasSaved) {
             const lastId = subjects[subjects.length - 1].id;
             setExpandedSubjectId(lastId);
         }
     }, [subjects.length]);
 
-    // Salvar estado expandido
+    // Salvar estado expandido com proteção
     useEffect(() => {
-        if (expandedSubjectId) {
-            localStorage.setItem('studyflow_expanded_subject_id', expandedSubjectId);
-        } else {
-            localStorage.removeItem('studyflow_expanded_subject_id');
-        }
+        try {
+            if (expandedSubjectId) {
+                localStorage.setItem('studyflow_expanded_subject_id', expandedSubjectId);
+            } else {
+                localStorage.removeItem('studyflow_expanded_subject_id');
+            }
+        } catch (e) {}
     }, [expandedSubjectId]);
 
     // Focus no input de edição quando ativado
