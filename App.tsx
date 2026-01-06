@@ -218,22 +218,25 @@ function App() {
 
               // 2. Se não achou local, tenta remoto (CRÍTICO PARA NOVOS DISPOSITIVOS)
               if (!encryptedData) {
-                  try {
-                      // Usa timestamp para evitar cache do navegador
-                      const response = await fetch(`./vault.json?t=${Date.now()}`);
-                      if (response.ok) {
-                          const json = await response.json();
-                          if (json.data) {
-                              console.log("Cofre remoto encontrado!");
-                              encryptedData = json.data;
-                              // Salva localmente para a próxima vez ser mais rápida
-                              safeSet('studyflow_secure_vault', json.data);
+                  const paths = [
+                      './vault.json',
+                      'vault.json',
+                      `${window.location.pathname.replace(/\/$/, '')}/vault.json`
+                  ];
+
+                  for (const path of paths) {
+                      try {
+                          const response = await fetch(`${path}?t=${Date.now()}`);
+                          if (response.ok) {
+                              const json = await response.json();
+                              if (json.data) {
+                                  console.log("Cofre remoto encontrado em:", path);
+                                  encryptedData = json.data;
+                                  safeSet('studyflow_secure_vault', json.data);
+                                  break; 
+                              }
                           }
-                      } else {
-                          console.log("Nenhum cofre remoto encontrado (404).");
-                      }
-                  } catch (e) { 
-                      console.log("Erro ao buscar cofre remoto:", e); 
+                      } catch (e) {}
                   }
               }
 
@@ -420,6 +423,33 @@ function App() {
         } finally {
             setTimeout(() => { isRestoring.current = false; }, 2000);
         }
+  };
+
+  const handleManualGithubSync = async (token: string) => {
+      if (!token) return;
+      try {
+          // 1. Buscar Gists
+          const response = await fetch('https://api.github.com/gists', {
+              headers: { 'Authorization': `token ${token}` }
+          });
+          
+          if (!response.ok) throw new Error("Token inválido ou erro de conexão.");
+          
+          const gists = await response.json();
+          // 2. Encontrar o Gist correto
+          const backupGist = gists.find((g: any) => 
+              Object.keys(g.files).some(f => f.includes('studyflow_backup'))
+          );
+
+          if (backupGist) {
+              // 3. Restaurar
+              await handleRestoreData(backupGist.id, token, false, { githubToken: token, backupGistId: backupGist.id });
+          } else {
+              alert("Nenhum backup encontrado nesta conta GitHub.");
+          }
+      } catch (e: any) {
+          alert(`Erro: ${e.message}`);
+      }
   };
 
   const handleUnlockVault = async (e: React.FormEvent) => {
@@ -634,7 +664,7 @@ function App() {
     }
 
     switch (currentScreen) {
-      case Screen.DASHBOARD: return <Dashboard onNavigate={setCurrentScreen} user={user} subjects={currentPlanSubjects} errorLogs={currentPlanErrorLogs} />;
+      case Screen.DASHBOARD: return <Dashboard onNavigate={setCurrentScreen} user={user} subjects={currentPlanSubjects} errorLogs={currentPlanErrorLogs} onManualRestore={handleManualGithubSync} />;
       case Screen.STUDY_PLAYER: return <StudyPlayer apiKey={user.openAiApiKey} model={user.openAiModel} subjects={currentPlanSubjects} dailyAvailableTime={user.dailyAvailableTimeMinutes || 240} onSessionComplete={handleSessionComplete} onNavigate={setCurrentScreen} onSaveNote={handleAddSavedNote} />;
       case Screen.SUBJECTS: return <SubjectManager 
                                         subjects={currentPlanSubjects} 
@@ -657,7 +687,7 @@ function App() {
       case Screen.ERROR_NOTEBOOK: return <ErrorNotebook subjects={currentPlanSubjects} logs={currentPlanErrorLogs} onAddLog={handleAddErrorLog} onDeleteLog={handleDeleteErrorLog} />;
       case Screen.SIMULATED_EXAMS: return <SimulatedExams exams={currentPlanExams} onAddExam={handleAddSimulatedExam} onDeleteExam={handleDeleteSimulatedExam} />;
       case Screen.SAVED_NOTES: return <SavedNotes notes={savedNotes} onDeleteNote={handleDeleteSavedNote} />;
-      default: return <Dashboard onNavigate={setCurrentScreen} user={user} subjects={currentPlanSubjects} errorLogs={currentPlanErrorLogs} />;
+      default: return <Dashboard onNavigate={setCurrentScreen} user={user} subjects={currentPlanSubjects} errorLogs={currentPlanErrorLogs} onManualRestore={handleManualGithubSync} />;
     }
   };
 

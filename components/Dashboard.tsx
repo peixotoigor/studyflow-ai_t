@@ -6,18 +6,113 @@ interface DashboardProps {
     user: UserProfile;
     subjects: Subject[];
     errorLogs?: ErrorLog[];
+    onManualRestore?: (token: string) => Promise<void>; // Nova prop para restaurar
 }
 
-export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects, errorLogs = [] }) => {
+export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects, errorLogs = [], onManualRestore }) => {
     const firstName = user.name.split(' ')[0];
     const [aiInsight, setAiInsight] = useState<string | null>(null);
     const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
-
-    // --- CÁLCULOS EM TEMPO REAL (Sem useMemo para garantir reatividade total) ---
-    // A remoção do useMemo garante que qualquer alteração profunda em 'subjects' (ex: edição de um log aninhado)
-    // dispare imediatamente o recálculo de todas as métricas.
     
+    // States para o modo de recuperação
+    const [showRestoreInput, setShowRestoreInput] = useState(false);
+    const [manualToken, setManualToken] = useState('');
+    const [isRestoring, setIsRestoring] = useState(false);
+
+    // --- CÁLCULOS EM TEMPO REAL ---
     const activeSubjects = subjects.filter(s => s.active);
+
+    // =================================================================================
+    // RENDERIZAÇÃO DE ESTADO ZERO (BOAS-VINDAS / RECUPERAÇÃO)
+    // =================================================================================
+    if (subjects.length === 0) {
+        return (
+            <div className="flex-1 flex flex-col items-center justify-center p-6 min-h-full bg-background-light dark:bg-background-dark animate-in fade-in duration-500">
+                <div className="max-w-2xl w-full text-center space-y-8">
+                    
+                    {/* Logo / Icon */}
+                    <div className="mx-auto size-24 bg-primary/10 rounded-3xl flex items-center justify-center mb-6 ring-8 ring-primary/5">
+                        <span className="material-symbols-outlined text-6xl text-primary">school</span>
+                    </div>
+
+                    <h1 className="text-4xl md:text-5xl font-black text-slate-900 dark:text-white tracking-tight">
+                        Bem-vindo ao StudyFlow
+                    </h1>
+                    
+                    <p className="text-lg text-slate-500 dark:text-slate-400 max-w-lg mx-auto leading-relaxed">
+                        Seu sistema de estudo de alta performance. Parece que você está em um novo dispositivo ou ainda não configurou seu plano.
+                    </p>
+
+                    {!showRestoreInput ? (
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-8">
+                            {/* Opção 1: Começar do Zero */}
+                            <button 
+                                onClick={() => onNavigate(Screen.IMPORTER)}
+                                className="group relative flex flex-col items-center p-6 bg-white dark:bg-card-dark border-2 border-slate-200 dark:border-slate-800 rounded-2xl hover:border-primary hover:shadow-xl transition-all"
+                            >
+                                <div className="bg-blue-100 dark:bg-blue-900/30 p-3 rounded-full mb-4 text-blue-600 dark:text-blue-400 group-hover:scale-110 transition-transform">
+                                    <span className="material-symbols-outlined text-3xl">upload_file</span>
+                                </div>
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Novo Usuário</h3>
+                                <p className="text-sm text-slate-500 mt-2">Importar edital PDF ou criar disciplinas manualmente.</p>
+                            </button>
+
+                            {/* Opção 2: Já tenho conta (Recuperar) */}
+                            <button 
+                                onClick={() => setShowRestoreInput(true)}
+                                className="group relative flex flex-col items-center p-6 bg-white dark:bg-card-dark border-2 border-slate-200 dark:border-slate-800 rounded-2xl hover:border-green-500 hover:shadow-xl transition-all"
+                            >
+                                <div className="bg-green-100 dark:bg-green-900/30 p-3 rounded-full mb-4 text-green-600 dark:text-green-400 group-hover:scale-110 transition-transform">
+                                    <span className="material-symbols-outlined text-3xl">cloud_sync</span>
+                                </div>
+                                <h3 className="text-lg font-bold text-slate-900 dark:text-white">Já uso o App</h3>
+                                <p className="text-sm text-slate-500 mt-2">Recuperar dados da nuvem (GitHub) usando seu Token.</p>
+                            </button>
+                        </div>
+                    ) : (
+                        <div className="bg-white dark:bg-card-dark p-8 rounded-2xl shadow-xl border border-slate-200 dark:border-slate-800 max-w-md mx-auto animate-in zoom-in-95">
+                            <div className="flex items-center gap-2 mb-4 text-left">
+                                <button onClick={() => setShowRestoreInput(false)} className="text-slate-400 hover:text-slate-600"><span className="material-symbols-outlined">arrow_back</span></button>
+                                <h3 className="font-bold text-lg text-slate-900 dark:text-white">Recuperação Manual</h3>
+                            </div>
+                            
+                            <p className="text-sm text-slate-500 text-left mb-4">
+                                Cole seu <strong>GitHub Personal Access Token</strong> abaixo. O sistema irá buscar automaticamente seu backup mais recente nos seus Gists.
+                            </p>
+
+                            <input 
+                                type="password" 
+                                value={manualToken}
+                                onChange={(e) => setManualToken(e.target.value)}
+                                placeholder="ghp_..."
+                                className="w-full p-3 rounded-lg border border-slate-300 dark:border-slate-700 bg-slate-50 dark:bg-black/20 mb-4 focus:ring-2 focus:ring-primary/50 outline-none"
+                            />
+
+                            <button 
+                                onClick={async () => {
+                                    if(!manualToken) return;
+                                    setIsRestoring(true);
+                                    if(onManualRestore) await onManualRestore(manualToken);
+                                    setIsRestoring(false);
+                                }}
+                                disabled={isRestoring || !manualToken}
+                                className="w-full py-3 bg-primary hover:bg-blue-600 text-white font-bold rounded-lg shadow-lg flex items-center justify-center gap-2 disabled:opacity-50"
+                            >
+                                {isRestoring ? <span className="material-symbols-outlined animate-spin">sync</span> : <span className="material-symbols-outlined">download</span>}
+                                {isRestoring ? 'Buscando Backup...' : 'Buscar e Restaurar'}
+                            </button>
+                            <p className="text-xs text-slate-400 mt-4">
+                                Não sabe o token? Gere um novo no GitHub em Settings {'>'} Developer Settings.
+                            </p>
+                        </div>
+                    )}
+                </div>
+            </div>
+        );
+    }
+
+    // ... (RESTO DO CÓDIGO DO DASHBOARD ORIGINAL PERMANECE IGUAL ABAIXO) ...
+    // ... APENAS O CONTEÚDO PRINCIPAL SE HOUVER DADOS ...
     
     // 1. Meta do Dia
     const todaysPlan = activeSubjects
