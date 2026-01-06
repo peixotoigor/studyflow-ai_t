@@ -385,9 +385,7 @@ function App() {
             if (content.user) {
                 setUser(prev => {
                     const mergedUser = { ...prev, ...content.user };
-                    // Se houver chaves forçadas, usamos elas.
-                    // ATENÇÃO: Se o cofre estiver ativo, as chaves não devem vir daqui em plain text
-                    // exceto no caso inicial onde o usuário acabou de digitar.
+                    // Se houver chaves forçadas, usamos elas (Apenas caso de backup SEM cofre).
                     if (forcedKeys) {
                         mergedUser.openAiApiKey = forcedKeys.openAiApiKey || prev.openAiApiKey;
                         mergedUser.githubToken = forcedKeys.githubToken || prev.githubToken;
@@ -412,7 +410,8 @@ function App() {
   const handleManualGithubSync = async (token: string) => {
       if (!token) return;
       try {
-          const response = await fetch('https://api.github.com/gists', {
+          // Adiciona ?per_page=100 para garantir que pegamos todos os Gists
+          const response = await fetch('https://api.github.com/gists?per_page=100', {
               headers: { 'Authorization': `token ${token}` }
           });
           
@@ -431,15 +430,14 @@ function App() {
               const vRes = await fetch(vaultUrl, { headers: { 'Authorization': `token ${token}` }});
               const vData = await vRes.json();
               if (vData.data) {
-                  // Instala o cofre localmente
+                  // Instala o cofre localmente de forma SÍNCRONA
                   safeSet('studyflow_secure_vault', vData.data);
                   setVaultEncryptedData(vData.data);
                   
-                  // IMPORTANTE: Bloqueia o app imediatamente
+                  // IMPORTANTE: Bloqueia o app e LIMPA o user state para evitar persistência acidental do token
                   setIsVaultLocked(true);
                   vaultFound = true;
                   
-                  // Limpa qualquer chave residual insegura do usuário ANTES de prosseguir
                   setUser(prev => ({ ...prev, githubToken: '', openAiApiKey: '' }));
                   
                   alert("🔐 Cofre de Segurança encontrado! \n\nO acesso foi bloqueado para sua proteção.\nPor favor, digite sua senha na próxima tela para descriptografar suas chaves.");
@@ -453,8 +451,7 @@ function App() {
 
           if (backupGist) {
               if (vaultFound) {
-                  // Se achou o cofre, restaura os dados SEM passar o token em texto claro.
-                  // O token será recuperado quando o usuário digitar a senha do cofre.
+                  // Se achou o cofre, restaura os dados SEM passar o token em texto claro (forcedKeys undefined).
                   await handleRestoreData(backupGist.id, token, true); 
               } else {
                   // Se NÃO achou cofre, restaura e injeta o token (modo inseguro/padrão)
@@ -530,18 +527,19 @@ function App() {
 
   // CRITICAL: User Persistence & Security Check
   useEffect(() => {
-    // Verifica a existência do cofre a cada atualização do usuário para decidir como salvar
-    const isVaultActive = !!safeGet('studyflow_secure_vault') || !!vaultEncryptedData;
+    // Verifica diretamente no localStorage para garantir que a flag seja verdadeira 
+    // mesmo que o state `vaultEncryptedData` tenha delay na atualização.
+    const hasLocalVault = !!safeGet('studyflow_secure_vault');
+    const isVaultActive = hasLocalVault || !!vaultEncryptedData;
     
     const secureUser = {
         ...user,
-        // Se o cofre estiver ativo, NUNCA salve as chaves no localStorage plano (studyflow_user).
-        // Se não estiver ativo (modo inseguro), criptografa com base64 simples.
+        // Se o cofre estiver ativo (localmente ou em memória), NUNCA salve chaves no localStorage inseguro.
         openAiApiKey: isVaultActive ? '' : encrypt(user.openAiApiKey),
         githubToken: isVaultActive ? '' : encrypt(user.githubToken)
     };
     safeSet('studyflow_user', JSON.stringify(secureUser));
-  }, [user, vaultEncryptedData]); // Adicionado vaultEncryptedData como dependência
+  }, [user, vaultEncryptedData]); 
 
   // Handlers de dados...
   const handleAddPlan = (name: string) => {
