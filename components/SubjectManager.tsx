@@ -166,13 +166,18 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
 
     const handleAiProcess = async () => {
         if (!apiKey) {
-            alert("Configure sua chave de API no perfil primeiro.");
+            alert("Erro: Configure sua chave de API (OpenAI) no perfil antes de usar este recurso.");
             return;
         }
         if (!rawSyllabusText.trim() || !aiImportSubjectId || !onAddTopic) return;
 
-        setIsAiProcessing(true);
         const cleanApiKey = apiKey.trim().replace(/[^\x00-\x7F]/g, "");
+        if (!cleanApiKey.startsWith('sk-')) {
+            alert("Erro de Configuração: A chave de API fornecida parece inválida (deve começar com 'sk-'). Verifique seu perfil.");
+            return;
+        }
+
+        setIsAiProcessing(true);
 
         try {
             const prompt = `
@@ -229,24 +234,52 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                 })
             });
 
-            if (!response.ok) throw new Error("Erro na API da OpenAI");
+            if (!response.ok) {
+                const errorData = await response.json().catch(() => null);
+                const apiErrorMessage = errorData?.error?.message || `Status Code: ${response.status}`;
+                throw new Error(apiErrorMessage);
+            }
 
             const data = await response.json();
-            const content = JSON.parse(data.choices[0].message.content);
+            
+            if (!data.choices || !data.choices[0] || !data.choices[0].message) {
+                throw new Error("Resposta da IA vazia ou mal formatada.");
+            }
+
+            let content;
+            try {
+                content = JSON.parse(data.choices[0].message.content);
+            } catch (e) {
+                throw new Error("A IA não retornou um JSON válido. O texto pode estar muito confuso.");
+            }
 
             if (content.topics && Array.isArray(content.topics)) {
                 content.topics.forEach((topicName: string) => {
                     onAddTopic(aiImportSubjectId, topicName);
                 });
-                setNewTopicInput(''); // Limpa o input principal caso tenha vindo de lá
+                setNewTopicInput(''); 
                 closeAiImportModal();
             } else {
-                throw new Error("Formato de resposta inválido");
+                throw new Error("O JSON retornado não contem a lista de 'topics' esperada.");
             }
 
-        } catch (error) {
-            console.error(error);
-            alert("Erro ao processar texto com IA. Tente novamente.");
+        } catch (error: any) {
+            console.error("Erro na extração IA:", error);
+            
+            let userFriendlyMessage = `Erro técnico: ${error.message}`;
+
+            // Tradução de Erros Comuns da OpenAI
+            if (error.message.includes("401") || error.message.toLowerCase().includes("invalid api key")) {
+                userFriendlyMessage = "Chave de API Inválida (401). Verifique se você colou a chave corretamente no seu perfil.";
+            } else if (error.message.includes("429") || error.message.toLowerCase().includes("quota") || error.message.toLowerCase().includes("billing")) {
+                userFriendlyMessage = "Cota da OpenAI Excedida (429). Verifique se você tem créditos/faturamento ativo na sua conta da OpenAI.";
+            } else if (error.message.includes("500") || error.message.includes("503")) {
+                userFriendlyMessage = "Instabilidade nos servidores da OpenAI. Tente novamente em alguns instantes.";
+            } else if (error.message.includes("JSON")) {
+                userFriendlyMessage = "Erro de formatação. A IA falhou em estruturar o texto. Tente enviar um trecho menor.";
+            }
+
+            alert(`Falha na Extração:\n\n${userFriendlyMessage}`);
         } finally {
             setIsAiProcessing(false);
         }
