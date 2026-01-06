@@ -278,8 +278,17 @@ function App() {
               plans,
               currentPlanId,
               errors: errorLogs,
-              // Não envia chaves API, mas envia nome e avatar
-              user: { ...user, githubToken: undefined, openAiApiKey: undefined }, 
+              // Enviamos o User completo, exceto as chaves, para garantir que Nome/Avatar sejam salvos
+              user: { 
+                  name: user.name,
+                  email: user.email,
+                  avatarUrl: user.avatarUrl,
+                  openAiModel: user.openAiModel,
+                  dailyAvailableTimeMinutes: user.dailyAvailableTimeMinutes,
+                  // Chaves NÃO vão para o backup
+                  githubToken: undefined, 
+                  openAiApiKey: undefined 
+              }, 
               simulatedExams,
               savedNotes,
               scheduleSettings: JSON.parse(localStorage.getItem('studyflow_schedule_settings') || '{}'),
@@ -344,11 +353,21 @@ function App() {
             if (content.savedNotes) setSavedNotes(content.savedNotes.map((n: any) => ({ ...n, createdAt: new Date(n.createdAt) })));
             if (content.currentPlanId) setCurrentPlanId(content.currentPlanId);
             
+            // Lógica de Restauração do Usuário Reforçada
             if (content.user) {
+                console.log("Restaurando perfil do usuário:", content.user.name);
                 setUser(prev => ({
                     ...prev,
-                    ...content.user,
-                    openAiApiKey: prev.openAiApiKey, // Mantém chaves locais seguras
+                    // Prioriza dados da nuvem, usa fallback local se vazio
+                    name: content.user.name || prev.name,
+                    email: content.user.email || prev.email,
+                    avatarUrl: content.user.avatarUrl || prev.avatarUrl,
+                    openAiModel: content.user.openAiModel || prev.openAiModel,
+                    dailyAvailableTimeMinutes: content.user.dailyAvailableTimeMinutes || prev.dailyAvailableTimeMinutes,
+                    
+                    // SEGURANÇA: Mantém chaves locais (vindas do cofre), ignorando o que vem da nuvem (que deve ser undefined)
+                    // Importante: As chaves locais já foram setadas pelo handleUnlockVault no 'prev'
+                    openAiApiKey: prev.openAiApiKey, 
                     githubToken: prev.githubToken,
                     backupGistId: prev.backupGistId
                 }));
