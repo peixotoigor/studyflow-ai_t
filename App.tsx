@@ -198,19 +198,47 @@ function App() {
       checkVault();
   }, []);
 
+  const handleRestoreData = async (gistId: string, token: string) => {
+        try {
+            const response = await fetch(`https://api.github.com/gists/${gistId}`, {
+                headers: { 'Authorization': `token ${token}` }
+            });
+            
+            if (!response.ok) throw new Error("Falha ao buscar backup.");
+            
+            const data = await response.json();
+            const fileKey = Object.keys(data.files).find(key => key.includes('studyflow'));
+            
+            if (!fileKey) throw new Error("Arquivo de backup inválido.");
+            
+            const content = JSON.parse(data.files[fileKey].content);
+            
+            // Restauração em Massa
+            if (content.subjects) localStorage.setItem('studyflow_subjects', JSON.stringify(content.subjects));
+            if (content.plans) localStorage.setItem('studyflow_plans', JSON.stringify(content.plans));
+            if (content.errors) localStorage.setItem('studyflow_errors', JSON.stringify(content.errors));
+            if (content.simulatedExams) localStorage.setItem('studyflow_simulated_exams', JSON.stringify(content.simulatedExams));
+            if (content.savedNotes) localStorage.setItem('studyflow_saved_notes', JSON.stringify(content.savedNotes));
+            if (content.currentPlanId) localStorage.setItem('studyflow_current_plan', content.currentPlanId);
+            
+            alert("Dados restaurados com sucesso! A página será recarregada.");
+            window.location.reload(); 
+        } catch (e: any) {
+            alert("Erro ao restaurar dados: " + e.message);
+        }
+  };
+
   const handleUnlockVault = async (e: React.FormEvent) => {
       e.preventDefault();
       if (!vaultEncryptedData) return;
       
       setVaultError('');
+      setCheckingVault(true); // Usa loader enquanto processa
+      
       try {
           const decryptedData = await decryptVault(vaultEncryptedData, vaultPasswordInput);
           
-          // Debug para garantir que as chaves estão vindo
-          if (!decryptedData.openAiApiKey && !decryptedData.githubToken) {
-              console.warn("Aviso: O cofre foi descriptografado, mas não continha chaves salvas.");
-          }
-
+          // 1. Atualizar Estado do Usuário com as Chaves
           setUser(prev => ({
               ...prev,
               openAiApiKey: decryptedData.openAiApiKey || prev.openAiApiKey,
@@ -218,12 +246,28 @@ function App() {
               backupGistId: decryptedData.backupGistId || prev.backupGistId
           }));
           
+          // 2. Verificar se precisamos restaurar dados (Sessão Vazia + Backup Disponível)
+          // Se subjects estiver vazio e tivermos um token e gist, oferecemos a restauração
+          const hasBackup = decryptedData.backupGistId && decryptedData.githubToken;
+          const isFreshSession = subjects.length === 0;
+
+          if (hasBackup && isFreshSession) {
+              // Delay pequeno para garantir que a UI atualize antes do confirm
+              setTimeout(async () => {
+                  if (window.confirm("Cofre desbloqueado! Detectamos um backup na nuvem e seu navegador está vazio.\n\nDeseja BAIXAR seus dados (Matérias, Planos, Histórico) agora?")) {
+                      await handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken);
+                  }
+              }, 100);
+          }
+          
           setIsVaultLocked(false);
           setVaultPasswordInput('');
           
       } catch (err) {
           console.error(err);
           setVaultError("Senha incorreta ou cofre corrompido.");
+      } finally {
+          setCheckingVault(false);
       }
   };
 
@@ -676,7 +720,7 @@ function App() {
                             type="submit"
                             className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold shadow-lg shadow-amber-500/20 transition-all active:scale-95"
                         >
-                            Desbloquear Acesso
+                            {checkingVault ? 'Verificando...' : 'Desbloquear Acesso'}
                         </button>
                     </form>
                 </div>
