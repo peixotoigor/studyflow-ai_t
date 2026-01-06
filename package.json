@@ -1,4 +1,5 @@
 {
+  "homepage": "https://peixotoigor.github.io/studyflow-ai_t",
   "name": "studyflow-ai",
   "private": true,
   "version": "0.0.0",
@@ -6,11 +7,13 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "predeploy": "npm run build",
+    "deploy": "gh-pages -d dist"
   },
   "dependencies": {
     "@google/genai": "latest",
-    "pdfjs-dist": "4.0.379",
+    "pdfjs-dist": "^4.8.69",
     "react": "^19.2.3",
     "react-dom": "^19.2.3"
   },

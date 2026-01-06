@@ -1,16 +1,10 @@
 import React, { useRef, useEffect } from 'react';
-import * as pdfjsLib from 'pdfjs-dist';
+import { GlobalWorkerOptions, getDocument, version as pdfjsVersion } from 'pdfjs-dist';
+import workerSrc from 'pdfjs-dist/build/pdf.worker.mjs?worker&url';
 import { Subject, ImporterState, SyllabusData } from '../types';
 
-// Função auxiliar para garantir acesso correto à biblioteca independente do ambiente de build
-const getPdfJs = () => {
-    const lib = (pdfjsLib as any).default || pdfjsLib;
-    // Configurar worker se ainda não estiver configurado
-    if (!lib.GlobalWorkerOptions.workerSrc) {
-        lib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
-    }
-    return lib;
-};
+// Configurar worker via Vite (evita CDN e problemas de resolução)
+GlobalWorkerOptions.workerSrc = workerSrc as unknown as string;
 
 // Paleta para distribuição automática no importador
 const IMPORT_COLORS = [
@@ -33,8 +27,7 @@ export const Importer: React.FC<ImporterProps> = ({ apiKey, model = 'gpt-4o-mini
     // Configuração inicial do worker ao montar o componente
     useEffect(() => {
         try {
-            const lib = getPdfJs();
-            console.log("PDF.js inicializado", lib.version);
+            console.log("PDF.js inicializado", pdfjsVersion);
         } catch (e) {
             console.error("Erro ao inicializar PDF.js", e);
         }
@@ -42,12 +35,11 @@ export const Importer: React.FC<ImporterProps> = ({ apiKey, model = 'gpt-4o-mini
 
     // Função para extrair texto do PDF (limite de 100 páginas)
     const extractTextFromPdf = async (file: File): Promise<string> => {
-        const lib = getPdfJs();
         const arrayBuffer = await file.arrayBuffer();
         const data = new Uint8Array(arrayBuffer);
         
         try {
-            const loadingTask = lib.getDocument({ data });
+            const loadingTask = getDocument({ data });
             
             // Tratamento específico para Senha e Erros de Carregamento
             loadingTask.onPassword = (updatePassword: any, reason: any) => {

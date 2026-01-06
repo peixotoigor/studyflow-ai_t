@@ -1,0 +1,5 @@
+/* Global styles placeholder to satisfy build linker. */
+:root {
+  color-scheme: light dark;
+}
+body { margin: 0; }
