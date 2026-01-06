@@ -121,7 +121,7 @@ function App() {
     };
   });
 
-  // --- VAULT DETECTION LOGIC (HYBRID: LOCAL + REMOTE) ---
+  // --- VAULT DETECTION LOGIC (HYBRID: LOCAL + REMOTE + RAW FALLBACK) ---
   useEffect(() => {
       const checkVault = async () => {
           try {
@@ -135,21 +135,61 @@ function App() {
                   return;
               }
 
-              // 2. Se não tem local, tenta buscar vault.json remoto (Persistência Cloud)
+              // 2. Tenta buscar vault.json relativo (Deploy padrão)
               // Adiciona timestamp para evitar cache do browser
-              const response = await fetch(`./vault.json?t=${Date.now()}`);
-              if (response.ok) {
-                  const json = await response.json();
-                  if (json.data) {
-                      console.log("Cofre remoto (vault.json) detectado.");
-                      setVaultEncryptedData(json.data);
-                      // Salvamos localmente também para agilizar o próximo load
-                      localStorage.setItem('studyflow_secure_vault', json.data);
-                      setIsVaultLocked(true);
+              try {
+                  const response = await fetch(`./vault.json?t=${Date.now()}`);
+                  if (response.ok) {
+                      const json = await response.json();
+                      if (json.data) {
+                          console.log("Cofre remoto (vault.json) detectado via fetch relativo.");
+                          setVaultEncryptedData(json.data);
+                          localStorage.setItem('studyflow_secure_vault', json.data);
+                          setIsVaultLocked(true);
+                          setCheckingVault(false);
+                          return;
+                      }
+                  }
+              } catch (e) {
+                  console.log("Fetch relativo falhou ou arquivo não encontrado, tentando fallback Raw...");
+              }
+
+              // 3. Fallback: Busca via Raw GitHub (para contornar cache ou 404 do Pages)
+              // Detecta usuário e repo da URL: https://user.github.io/repo/
+              const hostname = window.location.hostname;
+              if (hostname.includes('github.io')) {
+                  const user = hostname.split('.')[0];
+                  // O pathname começa com /, então split dá ['', 'repo', '...']
+                  const parts = window.location.pathname.split('/').filter(p => p); 
+                  const repo = parts[0]; 
+
+                  if (user && repo) {
+                      // Tenta main e master pois o nome da branch padrão varia
+                      const branches = ['main', 'master'];
+                      for (const branch of branches) {
+                          try {
+                              const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/${branch}/vault.json?t=${Date.now()}`;
+                              console.log(`Tentando resgate Raw: ${rawUrl}`);
+                              const rawRes = await fetch(rawUrl);
+                              if (rawRes.ok) {
+                                  const rawJson = await rawRes.json();
+                                  if (rawJson.data) {
+                                      console.log(`Cofre recuperado via Raw GitHub (${branch}).`);
+                                      setVaultEncryptedData(rawJson.data);
+                                      localStorage.setItem('studyflow_secure_vault', rawJson.data);
+                                      setIsVaultLocked(true);
+                                      setCheckingVault(false);
+                                      return;
+                                  }
+                              }
+                          } catch (e) {
+                              console.log(`Falha ao buscar branch ${branch}`);
+                          }
+                      }
                   }
               }
           } catch (e) {
-              console.log("Nenhum cofre detectado.");
+              console.log("Nenhum cofre detectado após todas as tentativas.");
           } finally {
               setCheckingVault(false);
           }
@@ -166,6 +206,11 @@ function App() {
       try {
           const decryptedData = await decryptVault(vaultEncryptedData, vaultPasswordInput);
           
+          // Debug para garantir que as chaves estão vindo
+          if (!decryptedData.openAiApiKey && !decryptedData.githubToken) {
+              console.warn("Aviso: O cofre foi descriptografado, mas não continha chaves salvas.");
+          }
+
           setUser(prev => ({
               ...prev,
               openAiApiKey: decryptedData.openAiApiKey || prev.openAiApiKey,
@@ -176,9 +221,9 @@ function App() {
           setIsVaultLocked(false);
           setVaultPasswordInput('');
           
-          // Opcional: Feedback visual de sucesso
       } catch (err) {
-          setVaultError("Senha incorreta.");
+          console.error(err);
+          setVaultError("Senha incorreta ou cofre corrompido.");
       }
   };
 

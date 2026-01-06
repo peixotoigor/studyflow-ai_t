@@ -143,13 +143,20 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
     };
 
     const generateAiInsights = async () => {
+        // Validação da Chave API
         if (!user.openAiApiKey) {
-            alert("Configure sua chave de API no perfil para gerar insights.");
+            alert("Atenção: Nenhuma chave de API encontrada. Por favor, configure sua OpenAI Key no seu perfil (clique na sua foto no menu lateral).");
+            return;
+        }
+
+        const cleanApiKey = user.openAiApiKey.trim().replace(/[^\x00-\x7F]/g, "");
+        
+        if (!cleanApiKey.startsWith('sk-')) {
+            alert("Erro: A chave de API parece inválida. Certifique-se de que ela começa com 'sk-' e não contém espaços extras.");
             return;
         }
 
         setIsGeneratingInsight(true);
-        const cleanApiKey = user.openAiApiKey.trim().replace(/[^\x00-\x7F]/g, "");
 
         try {
             const context = data.attentionRanking.map(s => 
@@ -182,13 +189,17 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                 })
             });
 
-            if (!response.ok) throw new Error("Erro na API da OpenAI");
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error?.message || "Erro desconhecido na API da OpenAI");
+            }
+            
             const resData = await response.json();
             setAiInsight(resData.choices[0].message.content);
 
-        } catch (error) {
+        } catch (error: any) {
             console.error(error);
-            alert("Erro ao gerar insights. Verifique sua chave API.");
+            alert(`Falha ao gerar insights: ${error.message}`);
         } finally {
             setIsGeneratingInsight(false);
         }
