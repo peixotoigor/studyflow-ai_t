@@ -214,7 +214,7 @@ function App() {
           try {
               let encryptedData: string | null = safeGet('studyflow_secure_vault');
 
-              // Verifica se tem vault remoto (para deploy estático)
+              // Verifica se tem vault remoto
               if (!encryptedData) {
                   const paths = ['./vault.json', 'vault.json'];
                   for (const path of paths) {
@@ -235,6 +235,7 @@ function App() {
               if (encryptedData) {
                   setVaultEncryptedData(encryptedData);
                   try {
+                      // Verifica sessão APENAS se o cofre existe
                       const sessionPass = sessionStorage.getItem('studyflow_session_pass');
                       if (sessionPass) {
                           const decryptedData = await decryptVault(encryptedData, sessionPass);
@@ -246,6 +247,7 @@ function App() {
                           }));
                           setIsVaultLocked(false);
                       } else {
+                          // Se não tem senha na sessão, bloqueia
                           setIsVaultLocked(true);
                       }
                   } catch (e) {
@@ -256,6 +258,7 @@ function App() {
                   setIsVaultLocked(false);
               }
           } catch (e) {
+              console.error(e);
               setIsVaultLocked(false);
           } finally {
               setCheckingVault(false);
@@ -290,7 +293,7 @@ function App() {
                   avatarUrl: userToSave.avatarUrl,
                   openAiModel: userToSave.openAiModel,
                   dailyAvailableTimeMinutes: userToSave.dailyAvailableTimeMinutes,
-                  githubToken: undefined, 
+                  githubToken: undefined, // Nunca salva tokens no backup de dados
                   openAiApiKey: undefined 
               }, 
               simulatedExams,
@@ -382,6 +385,9 @@ function App() {
             if (content.user) {
                 setUser(prev => {
                     const mergedUser = { ...prev, ...content.user };
+                    // Se houver chaves forçadas, usamos elas.
+                    // ATENÇÃO: Se o cofre estiver ativo, as chaves não devem vir daqui em plain text
+                    // exceto no caso inicial onde o usuário acabou de digitar.
                     if (forcedKeys) {
                         mergedUser.openAiApiKey = forcedKeys.openAiApiKey || prev.openAiApiKey;
                         mergedUser.githubToken = forcedKeys.githubToken || prev.githubToken;
@@ -406,7 +412,6 @@ function App() {
   const handleManualGithubSync = async (token: string) => {
       if (!token) return;
       try {
-          // 1. Buscar Gists do Usuário
           const response = await fetch('https://api.github.com/gists', {
               headers: { 'Authorization': `token ${token}` }
           });
@@ -415,7 +420,7 @@ function App() {
           
           const gists = await response.json();
           
-          // 2. Procurar COFRE DE SEGURANÇA (Vault) nos Gists
+          // 1. Procurar COFRE (Vault)
           const vaultGist = gists.find((g: any) => 
               Object.keys(g.files).some(f => f.includes('studyflow_vault.json'))
           );
@@ -426,24 +431,37 @@ function App() {
               const vRes = await fetch(vaultUrl, { headers: { 'Authorization': `token ${token}` }});
               const vData = await vRes.json();
               if (vData.data) {
-                  // Instala o cofre localmente e BLOQUEIA
+                  // Instala o cofre localmente
                   safeSet('studyflow_secure_vault', vData.data);
                   setVaultEncryptedData(vData.data);
-                  setIsVaultLocked(true); // Força o bloqueio para pedir senha
+                  
+                  // IMPORTANTE: Bloqueia o app imediatamente
+                  setIsVaultLocked(true);
                   vaultFound = true;
-                  alert("🔐 Cofre de Segurança encontrado e baixado! O acesso será bloqueado para você digitar sua senha.");
+                  
+                  // Limpa qualquer chave residual insegura do usuário ANTES de prosseguir
+                  setUser(prev => ({ ...prev, githubToken: '', openAiApiKey: '' }));
+                  
+                  alert("🔐 Cofre de Segurança encontrado! \n\nO acesso foi bloqueado para sua proteção.\nPor favor, digite sua senha na próxima tela para descriptografar suas chaves.");
               }
           }
 
-          // 3. Encontrar e Restaurar Dados (Backup)
+          // 2. Procurar Backup de Dados
           const backupGist = gists.find((g: any) => 
               Object.keys(g.files).some(f => f.includes('studyflow_backup'))
           );
 
           if (backupGist) {
-              await handleRestoreData(backupGist.id, token, false, { githubToken: token, backupGistId: backupGist.id });
+              if (vaultFound) {
+                  // Se achou o cofre, restaura os dados SEM passar o token em texto claro.
+                  // O token será recuperado quando o usuário digitar a senha do cofre.
+                  await handleRestoreData(backupGist.id, token, true); 
+              } else {
+                  // Se NÃO achou cofre, restaura e injeta o token (modo inseguro/padrão)
+                  await handleRestoreData(backupGist.id, token, false, { githubToken: token, backupGistId: backupGist.id });
+              }
           } else {
-              if (!vaultFound) alert("Nenhum backup encontrado nesta conta GitHub.");
+              if (!vaultFound) alert("Nenhum backup encontrado.");
           }
       } catch (e: any) {
           alert(`Erro: ${e.message}`);
@@ -473,9 +491,10 @@ function App() {
           
           setIsVaultLocked(false);
 
-          // Sincronização automática após desbloqueio
-          if (decryptedData.backupGistId && subjects.length === 0) {
+          // Sincronização automática pós-desbloqueio (garante dados frescos)
+          if (decryptedData.backupGistId) {
               setSyncState('SYNCING');
+              // Usa o token recém desencriptado
               await handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken, true, decryptedData);
           }
           
@@ -493,6 +512,8 @@ function App() {
       sessionStorage.removeItem('studyflow_session_pass');
       setIsVaultLocked(true);
       setVaultEncryptedData(safeGet('studyflow_secure_vault'));
+      // Limpa dados sensíveis da memória ao bloquear
+      setUser(prev => ({ ...prev, openAiApiKey: '', githubToken: '' }));
   };
 
   // Persistence Effects
@@ -507,15 +528,20 @@ function App() {
       safeSet('studyflow_importer', JSON.stringify(stateToSave));
   }, [importerState]);
 
+  // CRITICAL: User Persistence & Security Check
   useEffect(() => {
-    const isVaultActive = !!safeGet('studyflow_secure_vault');
+    // Verifica a existência do cofre a cada atualização do usuário para decidir como salvar
+    const isVaultActive = !!safeGet('studyflow_secure_vault') || !!vaultEncryptedData;
+    
     const secureUser = {
         ...user,
+        // Se o cofre estiver ativo, NUNCA salve as chaves no localStorage plano (studyflow_user).
+        // Se não estiver ativo (modo inseguro), criptografa com base64 simples.
         openAiApiKey: isVaultActive ? '' : encrypt(user.openAiApiKey),
         githubToken: isVaultActive ? '' : encrypt(user.githubToken)
     };
     safeSet('studyflow_user', JSON.stringify(secureUser));
-  }, [user]);
+  }, [user, vaultEncryptedData]); // Adicionado vaultEncryptedData como dependência
 
   // Handlers de dados...
   const handleAddPlan = (name: string) => {
