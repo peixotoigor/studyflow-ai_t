@@ -12,7 +12,8 @@ interface SidebarProps {
     onDeletePlan?: (planId: string) => void;
     onUpdateUser?: (user: UserProfile) => void;
     onUpdatePlan?: (plan: StudyPlan) => void;
-    onOpenProfile?: () => void; // Novo Prop para abrir o modal
+    onOpenProfile?: () => void; 
+    onLock?: () => void; // Nova prop para trancar
 }
 
 const PLAN_COLORS = ['blue', 'red', 'green', 'purple', 'orange', 'teal', 'pink'];
@@ -28,7 +29,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
     onDeletePlan,
     onUpdateUser,
     onUpdatePlan,
-    onOpenProfile
+    onOpenProfile,
+    onLock
 }) => {
     const [isPlanDropdownOpen, setIsPlanDropdownOpen] = useState(false);
     const [isAddingPlan, setIsAddingPlan] = useState(false);
@@ -45,7 +47,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: Screen.DASHBOARD, label: 'Dashboard', icon: 'dashboard' },
         { id: Screen.DYNAMIC_SCHEDULE, label: 'Plano de Estudo', icon: 'calendar_month' },
         { id: Screen.STUDY_PLAYER, label: 'Modo Foco', icon: 'play_circle' },
-        { id: Screen.HISTORY, label: 'Histórico', icon: 'history' }, // Novo Item
+        { id: Screen.HISTORY, label: 'Histórico', icon: 'history' }, 
         { id: Screen.SIMULATED_EXAMS, label: 'Simulados', icon: 'history_edu' }, 
         { id: Screen.ERROR_NOTEBOOK, label: 'Caderno de Erros', icon: 'assignment_late' }, 
         { id: Screen.SAVED_NOTES, label: 'Insights IA', icon: 'lightbulb' }, 
@@ -297,8 +299,8 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 </div>
                 <div className="px-2">
                     <button 
-                        onClick={() => alert("Funcionalidade de sair seria implementada aqui.")}
-                        className="flex items-center gap-3 px-3 py-2 w-full text-left rounded-lg text-text-secondary-light dark:text-text-secondary-dark hover:bg-red-50 dark:hover:bg-red-900/10 hover:text-red-600 transition-all"
+                        onClick={onLock}
+                        className="flex items-center gap-3 px-3 py-2 w-full text-left rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 transition-all group"
                     >
                         <span className="material-symbols-outlined text-[24px]">logout</span>
                         <p className="text-sm font-medium leading-normal">Sair</p>

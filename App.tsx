@@ -713,7 +713,7 @@ function App() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background-light dark:bg-background-dark text-text-primary-light dark:text-text-primary-dark">
-      <Sidebar currentScreen={currentScreen} onNavigate={setCurrentScreen} user={user} plans={plans} currentPlanId={currentPlanId} onSwitchPlan={setCurrentPlanId} onAddPlan={handleAddPlan} onDeletePlan={handleDeletePlan} onUpdateUser={setUser} onUpdatePlan={handleUpdatePlan} onOpenProfile={() => setIsProfileOpen(true)} />
+      <Sidebar currentScreen={currentScreen} onNavigate={setCurrentScreen} user={user} plans={plans} currentPlanId={currentPlanId} onSwitchPlan={setCurrentPlanId} onAddPlan={handleAddPlan} onDeletePlan={handleDeletePlan} onUpdateUser={setUser} onUpdatePlan={handleUpdatePlan} onOpenProfile={() => setIsProfileOpen(true)} onLock={handleLockVault} />
       
       <main className="flex-1 flex flex-col h-full overflow-hidden relative transition-colors duration-200">
         <header className="h-16 flex items-center justify-between px-6 border-b border-border-light dark:border-border-dark bg-card-light dark:bg-card-dark flex-shrink-0 transition-colors duration-200 z-20">
@@ -744,16 +744,6 @@ function App() {
                               syncState === 'ERROR' ? 'Erro Sync' : 'Nuvem Ativa'}
                          </span>
                      </div>
-                 )}
-                 {vaultEncryptedData && !isVaultLocked && (
-                     <button 
-                        onClick={handleLockVault}
-                        className="flex items-center gap-1 px-2 py-1 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors ml-2 active:scale-95"
-                        title="Bloquear App Agora"
-                     >
-                         <span className="material-symbols-outlined text-sm">lock</span>
-                         <span className="text-[10px] font-bold uppercase hidden md:inline">Trancar</span>
-                     </button>
                  )}
             </div>
 
