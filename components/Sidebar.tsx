@@ -45,6 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: Screen.DASHBOARD, label: 'Dashboard', icon: 'dashboard' },
         { id: Screen.DYNAMIC_SCHEDULE, label: 'Plano de Estudo', icon: 'calendar_month' },
         { id: Screen.STUDY_PLAYER, label: 'Modo Foco', icon: 'play_circle' },
+        { id: Screen.HISTORY, label: 'Histórico', icon: 'history' }, // Novo Item
         { id: Screen.SIMULATED_EXAMS, label: 'Simulados', icon: 'history_edu' }, 
         { id: Screen.ERROR_NOTEBOOK, label: 'Caderno de Erros', icon: 'assignment_late' }, 
         { id: Screen.SAVED_NOTES, label: 'Insights IA', icon: 'lightbulb' }, 

@@ -7,7 +7,8 @@ export enum Screen {
     DYNAMIC_SCHEDULE = 'DYNAMIC_SCHEDULE',
     ERROR_NOTEBOOK = 'ERROR_NOTEBOOK',
     SIMULATED_EXAMS = 'SIMULATED_EXAMS',
-    SAVED_NOTES = 'SAVED_NOTES' // Nova Tela
+    SAVED_NOTES = 'SAVED_NOTES',
+    HISTORY = 'HISTORY' // Nova Tela
 }
 
 export interface NavItem {

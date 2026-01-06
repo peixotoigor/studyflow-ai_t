@@ -11,7 +11,7 @@ export const BottomNavigation: React.FC<BottomNavigationProps> = ({ currentScree
         { id: Screen.DASHBOARD, label: 'Início', icon: 'dashboard' },
         { id: Screen.DYNAMIC_SCHEDULE, label: 'Plano', icon: 'calendar_month' },
         { id: Screen.STUDY_PLAYER, label: 'Foco', icon: 'play_circle' },
-        { id: Screen.SAVED_NOTES, label: 'Insights', icon: 'lightbulb' }, // Novo item
+        { id: Screen.HISTORY, label: 'Histórico', icon: 'history' }, // Novo Item
         { id: Screen.SUBJECTS, label: 'Matérias', icon: 'menu_book' },
     ];
 

@@ -3,6 +3,7 @@ import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
 import { StudyPlayer } from './components/StudyPlayer';
 import { SubjectManager } from './components/SubjectManager';
+import { StudyHistory } from './components/StudyHistory';
 import { Importer } from './components/Importer';
 import { DynamicSchedule } from './components/DynamicSchedule';
 import { ErrorNotebook } from './components/ErrorNotebook';
@@ -623,6 +624,7 @@ function App() {
                                         apiKey={user.openAiApiKey} 
                                         model={user.openAiModel} 
                                     />;
+      case Screen.HISTORY: return <StudyHistory subjects={currentPlanSubjects} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteSubjectLog} />;
       case Screen.IMPORTER: return <Importer apiKey={user.openAiApiKey} model={user.openAiModel} onImport={handleImportSubjects} state={importerState} setState={setImporterState} />;
       case Screen.DYNAMIC_SCHEDULE: return <DynamicSchedule subjects={currentPlanSubjects} onUpdateSubject={handleUpdateSubject} user={user} onUpdateUser={setUser} errorLogs={currentPlanErrorLogs} />;
       case Screen.ERROR_NOTEBOOK: return <ErrorNotebook subjects={currentPlanSubjects} logs={currentPlanErrorLogs} onAddLog={handleAddErrorLog} onDeleteLog={handleDeleteErrorLog} />;
