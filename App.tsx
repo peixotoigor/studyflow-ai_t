@@ -244,28 +244,18 @@ function App() {
   // --- AUTO SAVE LOGIC ---
   const autoSaveTimeoutRef = useRef<NodeJS.Timeout | null>(null);
 
-  useEffect(() => {
-      if (!user.githubToken || !user.backupGistId || isVaultLocked) return;
-      if (isRestoring.current) return; 
-
-      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
-      if (syncState !== 'SYNCING') setSyncState('SAVING'); 
-
-      autoSaveTimeoutRef.current = setTimeout(async () => {
-          await performAutoSave();
-      }, 2000); // Reduzido para 2s para evitar perda de dados se o usuário sair rápido
-
-      return () => {
-          if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
-      };
-  }, [subjects, plans, errorLogs, simulatedExams, savedNotes, currentPlanId, user]); 
-
-  const performAutoSave = async () => {
+  // Função centralizada de salvamento - Agora aceita override de user para saves imediatos
+  const performAutoSave = async (manualUserOverride?: UserProfile) => {
       try {
+          // Usa o usuário passado manualmente OU o estado atual
+          // Isso corrige o delay do useState quando chamado pelo ProfileModal
+          const userToSave = manualUserOverride || user;
+
+          if (!userToSave.githubToken || !userToSave.backupGistId) return;
           if (syncState === 'SYNCING') return; 
-          setSyncState('SAVING');
           
-          console.log("Iniciando backup para Gist:", user.backupGistId);
+          setSyncState('SAVING');
+          console.log("Iniciando backup para Gist:", userToSave.backupGistId);
 
           const backupData = {
               version: 2,
@@ -276,11 +266,11 @@ function App() {
               errors: errorLogs,
               // User data sync: EXPLICITAMENTE CONSTRUÍDO para evitar referências antigas
               user: { 
-                  name: user.name,
-                  email: user.email,
-                  avatarUrl: user.avatarUrl,
-                  openAiModel: user.openAiModel,
-                  dailyAvailableTimeMinutes: user.dailyAvailableTimeMinutes,
+                  name: userToSave.name,
+                  email: userToSave.email,
+                  avatarUrl: userToSave.avatarUrl,
+                  openAiModel: userToSave.openAiModel,
+                  dailyAvailableTimeMinutes: userToSave.dailyAvailableTimeMinutes,
                   githubToken: undefined, 
                   openAiApiKey: undefined 
               }, 
@@ -296,10 +286,10 @@ function App() {
           const fileName = "studyflow_backup.json";
           const content = JSON.stringify(backupData, null, 2);
           
-          await fetch(`https://api.github.com/gists/${user.backupGistId}`, {
+          await fetch(`https://api.github.com/gists/${userToSave.backupGistId}`, {
               method: 'PATCH',
               headers: { 
-                  'Authorization': `token ${user.githubToken}`, 
+                  'Authorization': `token ${userToSave.githubToken}`, 
                   'Content-Type': 'application/json' 
               },
               body: JSON.stringify({ 
@@ -309,12 +299,38 @@ function App() {
           });
 
           setSyncState('SAVED');
-          console.log("Backup concluído.");
+          console.log("Backup concluído com sucesso.");
           setTimeout(() => setSyncState('IDLE'), 3000); 
           
       } catch (e) {
           console.error("Auto-save falhou", e);
           setSyncState('ERROR');
+      }
+  };
+
+  useEffect(() => {
+      if (!user.githubToken || !user.backupGistId || isVaultLocked) return;
+      if (isRestoring.current) return; 
+
+      if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+      if (syncState !== 'SYNCING') setSyncState('SAVING'); 
+
+      autoSaveTimeoutRef.current = setTimeout(async () => {
+          await performAutoSave();
+      }, 2000); // Debounce padrão para outras mudanças
+
+      return () => {
+          if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
+      };
+  }, [subjects, plans, errorLogs, simulatedExams, savedNotes, currentPlanId, user]); 
+
+  // Wrapper para atualizar usuário e forçar save IMEDIATO
+  const handleUpdateUser = (updatedUser: UserProfile) => {
+      setUser(updatedUser);
+      // Se houver credenciais, força o backup agora mesmo, sem esperar o debounce
+      if (updatedUser.backupGistId && updatedUser.githubToken) {
+          console.log("Forçando salvamento de perfil imediato...");
+          performAutoSave(updatedUser);
       }
   };
 
@@ -337,6 +353,7 @@ function App() {
             if (!fileKey) throw new Error("Arquivo de backup inválido.");
             
             const content = JSON.parse(data.files[fileKey].content);
+            console.log("Conteúdo do Backup Recebido (User):", content.user);
             
             if (content.subjects) {
                 const hydratedSubjects = content.subjects.map((s: any) => ({
@@ -353,7 +370,6 @@ function App() {
             
             // Restauração Robusta do Perfil
             if (content.user) {
-                console.log("Restaurando perfil de usuário:", content.user.name);
                 setUser(prev => {
                     // 1. Começa com o estado anterior
                     // 2. Sobrescreve com TUDO que veio da nuvem (nome, avatar, email...)
@@ -415,11 +431,15 @@ function App() {
 
           // Lógica de Sync Automático (Pull)
           const hasBackupCreds = decryptedData.backupGistId && decryptedData.githubToken;
-          const isFreshSession = subjects.length === 0; // Se não tem matérias, assume que precisa baixar tudo
+          
+          // Sempre tenta puxar se tiver credenciais, para garantir que estamos atualizados
+          // ou use isFreshSession se preferir não sobrescrever trabalho local recente não salvo
+          const isFreshSession = subjects.length === 0; 
 
           if (hasBackupCreds && isFreshSession) {
               console.log("Sessão limpa detectada. Baixando dados da nuvem...");
               // Passa as chaves descriptografadas explicitamente para garantir que o restore as use e não perca
+              // IMPORTANTE: await aqui garante que checkingVault fique true até acabar
               await handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken, true, decryptedData);
           }
           
@@ -626,7 +646,7 @@ function App() {
             isOpen={isProfileOpen} 
             onClose={() => setIsProfileOpen(false)} 
             user={user}
-            onSave={setUser}
+            onSave={handleUpdateUser}
         />
       </main>
     </div>

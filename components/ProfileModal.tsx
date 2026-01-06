@@ -173,7 +173,8 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                 ctx.scale(cropScale, cropScale);
                 ctx.translate(cropPos.x, cropPos.y);
                 ctx.drawImage(imgRef.current, -imgRef.current.naturalWidth / 2, -imgRef.current.naturalHeight / 2);
-                setAvatarUrl(canvas.toDataURL('image/jpeg', 0.9));
+                // OTIMIZAÇÃO: Reduz qualidade para 0.7 para garantir que payload caiba no Gist
+                setAvatarUrl(canvas.toDataURL('image/jpeg', 0.7));
                 setTempImage(null);
             }
         }
