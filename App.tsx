@@ -535,13 +535,13 @@ function App() {
   };
 
   // Funções para manipular Logs Existentes (Edição, Exclusão e Adição Manual)
+  // IMPORTANTE: Garantimos a criação de novas referências de array para disparar re-render
   const handleUpdateLog = (subjectId: string, logId: string, updatedLog: Partial<StudyLog>) => {
       setSubjects(prev => prev.map(s => {
           if (s.id !== subjectId) return s;
-          return {
-              ...s,
-              logs: s.logs ? s.logs.map(log => log.id === logId ? { ...log, ...updatedLog } : log) : []
-          };
+          // Nova referência para logs
+          const newLogs = s.logs ? s.logs.map(log => log.id === logId ? { ...log, ...updatedLog } : log) : [];
+          return { ...s, logs: newLogs };
       }));
   };
 
@@ -549,20 +549,16 @@ function App() {
       if (!window.confirm("Deseja apagar este registro de estudo?")) return;
       setSubjects(prev => prev.map(s => {
           if (s.id !== subjectId) return s;
-          return {
-              ...s,
-              logs: s.logs ? s.logs.filter(log => log.id !== logId) : []
-          };
+          const newLogs = s.logs ? s.logs.filter(log => log.id !== logId) : [];
+          return { ...s, logs: newLogs };
       }));
   };
 
   const handleAddSubjectLog = (subjectId: string, log: StudyLog) => {
       setSubjects(prev => prev.map(s => {
           if (s.id !== subjectId) return s;
-          return {
-              ...s,
-              logs: [log, ...(s.logs || [])]
-          };
+          const newLogs = [log, ...(s.logs || [])];
+          return { ...s, logs: newLogs };
       }));
   };
 

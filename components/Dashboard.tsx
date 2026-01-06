@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useState } from 'react';
 import { Screen, UserProfile, Subject, getSubjectIcon, ErrorLog } from '../types';
 
 interface DashboardProps {
@@ -13,128 +13,142 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
     const [aiInsight, setAiInsight] = useState<string | null>(null);
     const [isGeneratingInsight, setIsGeneratingInsight] = useState(false);
 
-    // Cálculos Estatísticos e de Planejamento
-    const data = useMemo(() => {
-        const activeSubjects = subjects.filter(s => s.active);
-        
-        // 1. Meta do Dia (Simulação do Algoritmo de Prioridade)
-        const todaysPlan = activeSubjects
-            .sort((a, b) => {
-                const priorityWeight = { 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1 };
-                const pA = priorityWeight[a.priority || 'MEDIUM'];
-                const pB = priorityWeight[b.priority || 'MEDIUM'];
-                if (pA === pB) {
-                    const progressA = a.topics.length > 0 ? a.topics.filter(t => t.completed).length / a.topics.length : 1;
-                    const progressB = b.topics.length > 0 ? b.topics.filter(t => t.completed).length / b.topics.length : 1;
-                    return progressA - progressB;
-                }
-                return pB - pA;
-            })
-            .slice(0, 3)
-            .map(sub => {
-                const nextTopic = sub.topics.find(t => !t.completed);
-                return {
-                    subject: sub,
-                    nextTopic: nextTopic,
-                    remainingTopics: sub.topics.filter(t => !t.completed).length
-                };
-            });
-
-        // 2. Métricas de Desempenho (Questões e Acertos)
-        let totalQuestions = 0;
-        let totalCorrect = 0;
-        let totalStudyMinutes = 0;
-
-        const performanceBySubject = activeSubjects.map(sub => {
-            let subQuestions = 0;
-            let subCorrect = 0;
-            let subMinutes = 0;
-
-            if (sub.logs) {
-                sub.logs.forEach(log => {
-                    subQuestions += log.questionsCount;
-                    subCorrect += log.correctCount;
-                    subMinutes += log.durationMinutes;
-                });
+    // --- CÁLCULOS EM TEMPO REAL (Sem useMemo para garantir reatividade total) ---
+    // A remoção do useMemo garante que qualquer alteração profunda em 'subjects' (ex: edição de um log aninhado)
+    // dispare imediatamente o recálculo de todas as métricas.
+    
+    const activeSubjects = subjects.filter(s => s.active);
+    
+    // 1. Meta do Dia
+    const todaysPlan = activeSubjects
+        .sort((a, b) => {
+            const priorityWeight = { 'HIGH': 3, 'MEDIUM': 2, 'LOW': 1 };
+            const pA = priorityWeight[a.priority || 'MEDIUM'];
+            const pB = priorityWeight[b.priority || 'MEDIUM'];
+            if (pA === pB) {
+                const progressA = a.topics.length > 0 ? a.topics.filter(t => t.completed).length / a.topics.length : 1;
+                const progressB = b.topics.length > 0 ? b.topics.filter(t => t.completed).length / b.topics.length : 1;
+                return progressA - progressB;
             }
-
-            totalQuestions += subQuestions;
-            totalCorrect += subCorrect;
-            totalStudyMinutes += subMinutes;
-
-            const accuracy = subQuestions > 0 ? Math.round((subCorrect / subQuestions) * 100) : 0;
-            const explicitErrors = errorLogs.filter(e => e.subjectId === sub.id).length;
-
+            return pB - pA;
+        })
+        .slice(0, 3)
+        .map(sub => {
+            const nextTopic = sub.topics.find(t => !t.completed);
             return {
-                id: sub.id,
-                name: sub.name,
-                color: sub.color || 'blue',
-                questions: subQuestions,
-                correct: subCorrect,
-                accuracy: accuracy,
-                minutes: subMinutes,
-                explicitErrors: explicitErrors
+                subject: sub,
+                nextTopic: nextTopic,
+                remainingTopics: sub.topics.filter(t => !t.completed).length
             };
-        }).sort((a, b) => b.minutes - a.minutes); 
-
-        // 3. Radar de Atenção (Ranking de Urgência)
-        const attentionRanking = performanceBySubject
-            .map(sub => {
-                // Cálculo de Urgência
-                let urgencyScore = (100 - sub.accuracy);
-                if (sub.questions === 0) urgencyScore = 50;
-                urgencyScore += (sub.explicitErrors * 5); 
-                if (sub.minutes > 120 && sub.accuracy < 60) urgencyScore += 20;
-                return { ...sub, urgencyScore };
-            })
-            .sort((a, b) => b.urgencyScore - a.urgencyScore)
-            .filter(sub => sub.urgencyScore > 0) 
-            .slice(0, 4); 
-
-        const globalAccuracy = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
-
-        // 4. Dados para Curva de Aprendizagem (Histórico Diário)
-        const dailyStats: Record<string, { totalQ: number; totalC: number }> = {};
-        activeSubjects.forEach(sub => {
-            if (sub.logs) {
-                sub.logs.forEach(log => {
-                    const dateKey = new Date(log.date).toISOString().split('T')[0];
-                    if (!dailyStats[dateKey]) dailyStats[dateKey] = { totalQ: 0, totalC: 0 };
-                    dailyStats[dateKey].totalQ += log.questionsCount;
-                    dailyStats[dateKey].totalC += log.correctCount;
-                });
-            }
         });
 
-        const historyData = Object.entries(dailyStats)
-            .map(([dateStr, stats]) => {
-                const dateObj = new Date(dateStr);
-                // Ajuste de fuso horário simples para exibição correta do dia
-                const userTimezoneOffset = dateObj.getTimezoneOffset() * 60000;
-                const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
-                
-                return {
-                    date: adjustedDate.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' }),
-                    rawDate: new Date(dateStr),
-                    accuracy: stats.totalQ > 0 ? Math.round((stats.totalC / stats.totalQ) * 100) : 0
-                };
-            })
-            .sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime())
-            .slice(-10); // Últimos 10 dias com atividade
+    // 2. Métricas de Desempenho
+    let totalQuestions = 0;
+    let totalCorrect = 0;
+    let totalStudyMinutes = 0;
+
+    const performanceBySubject = activeSubjects.map(sub => {
+        let subQuestions = 0;
+        let subCorrect = 0;
+        let subMinutes = 0;
+
+        // Garante que logs existe
+        if (sub.logs && Array.isArray(sub.logs)) {
+            sub.logs.forEach(log => {
+                subQuestions += (log.questionsCount || 0);
+                subCorrect += (log.correctCount || 0);
+                subMinutes += (log.durationMinutes || 0);
+            });
+        }
+
+        const accuracy = subQuestions > 0 ? Math.round((subCorrect / subQuestions) * 100) : 0;
+        const explicitErrors = errorLogs.filter(e => e.subjectId === sub.id).length;
 
         return {
-            todaysPlan,
-            performanceBySubject,
-            attentionRanking,
-            historyData,
-            global: {
-                totalQuestions,
-                totalCorrect,
-                accuracy: globalAccuracy,
-                totalStudyHours: (totalStudyMinutes / 60).toFixed(1)
-            }
+            id: sub.id,
+            name: sub.name,
+            color: sub.color || 'blue',
+            questions: subQuestions,
+            correct: subCorrect,
+            accuracy: accuracy,
+            minutes: subMinutes,
+            explicitErrors: explicitErrors
         };
-    }, [subjects, errorLogs]);
+    }).sort((a, b) => b.minutes - a.minutes); 
+
+    // 3. Radar de Atenção (Ranking de Urgência)
+    const attentionRanking = performanceBySubject
+        .map(sub => {
+            // Cálculo de Urgência
+            let urgencyScore = 0;
+            
+            // Fator 1: Baixa Acurácia (Peso Alto)
+            if (sub.questions > 0) {
+                urgencyScore += (100 - sub.accuracy) * 1.5; 
+            } else if (sub.minutes > 60) {
+                // Se estudou muito tempo mas não fez questões, alerta moderado
+                urgencyScore += 30;
+            }
+
+            // Fator 2: Erros Explícitos no Caderno
+            urgencyScore += (sub.explicitErrors * 10); 
+
+            // Fator 3: Volume de Estudo vs Resultado
+            // Se estudou muito (> 2h) e está com desempenho ruim (< 60%), urgência crítica
+            if (sub.minutes > 120 && sub.accuracy < 60) urgencyScore += 50;
+
+            return { ...sub, urgencyScore };
+        })
+        .filter(sub => sub.urgencyScore > 10) // Filtra apenas o que realmente precisa de atenção
+        .sort((a, b) => b.urgencyScore - a.urgencyScore)
+        .slice(0, 4); 
+
+    const globalAccuracy = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
+
+    // 4. Dados para Curva de Aprendizagem
+    const dailyStats: Record<string, { totalQ: number; totalC: number }> = {};
+    activeSubjects.forEach(sub => {
+        if (sub.logs) {
+            sub.logs.forEach(log => {
+                try {
+                    const dateKey = new Date(log.date).toISOString().split('T')[0];
+                    if (!dailyStats[dateKey]) dailyStats[dateKey] = { totalQ: 0, totalC: 0 };
+                    dailyStats[dateKey].totalQ += (log.questionsCount || 0);
+                    dailyStats[dateKey].totalC += (log.correctCount || 0);
+                } catch(e) {
+                    console.warn("Invalid date in log", log);
+                }
+            });
+        }
+    });
+
+    const historyData = Object.entries(dailyStats)
+        .map(([dateStr, stats]) => {
+            const dateObj = new Date(dateStr);
+            const userTimezoneOffset = dateObj.getTimezoneOffset() * 60000;
+            const adjustedDate = new Date(dateObj.getTime() + userTimezoneOffset);
+            
+            return {
+                date: adjustedDate.toLocaleDateString(undefined, { day: '2-digit', month: '2-digit' }),
+                rawDate: new Date(dateStr),
+                accuracy: stats.totalQ > 0 ? Math.round((stats.totalC / stats.totalQ) * 100) : 0
+            };
+        })
+        .sort((a, b) => a.rawDate.getTime() - b.rawDate.getTime())
+        .slice(-10);
+
+    const data = {
+        todaysPlan,
+        performanceBySubject,
+        attentionRanking,
+        historyData,
+        global: {
+            totalQuestions,
+            totalCorrect,
+            accuracy: globalAccuracy,
+            totalStudyHours: (totalStudyMinutes / 60).toFixed(1)
+        }
+    };
 
     const getAccuracyColor = (acc: number) => {
         if (acc >= 80) return 'text-green-600 bg-green-500';
