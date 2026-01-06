@@ -138,6 +138,10 @@ export const Importer: React.FC<ImporterProps> = ({ apiKey, model = 'gpt-4o-mini
                 4. Retorne APENAS o texto bruto dessa seção, do início ao fim das disciplinas. Não formate, não resuma. Quero o texto original recortado.
             `;
 
+            // Limite de caracteres para evitar "Failed to fetch" por payload excessivo
+            const MAX_CHARS_FOR_FILTER = 150000;
+            const textForFilter = fullText.substring(0, MAX_CHARS_FOR_FILTER);
+
             const filterResponse = await fetch('https://api.openai.com/v1/chat/completions', {
                 method: 'POST',
                 headers: {
@@ -148,13 +152,16 @@ export const Importer: React.FC<ImporterProps> = ({ apiKey, model = 'gpt-4o-mini
                     model: model, // Pode usar gpt-4o-mini aqui pois é tarefa de leitura extensa
                     messages: [
                         { role: "system", content: "Você é um assistente especialista em filtrar textos de editais." },
-                        { role: "user", content: filterPrompt + "\n\n--- DOCUMENTO ---\n" + fullText.substring(0, 450000) } // Maximize context
+                        { role: "user", content: filterPrompt + "\n\n--- DOCUMENTO ---\n" + textForFilter }
                     ],
                     temperature: 0.1
                 })
             });
 
-            if (!filterResponse.ok) throw new Error("Erro ao contatar a IA (Etapa de Filtragem). Verifique sua chave API.");
+            if (!filterResponse.ok) {
+                const errorBody = await filterResponse.text();
+                throw new Error(`Erro API (${filterResponse.status}): ${errorBody}`);
+            }
             
             const filterData = await filterResponse.json();
             const relevantText = filterData.choices?.[0]?.message?.content;
@@ -166,7 +173,7 @@ export const Importer: React.FC<ImporterProps> = ({ apiKey, model = 'gpt-4o-mini
                 console.log("Contexto isolado com sucesso. Tamanho:", relevantText.length);
             }
 
-            const textToProcess = (relevantText && relevantText.length > 100) ? relevantText : fullText.substring(0, 100000);
+            const textToProcess = (relevantText && relevantText.length > 100) ? relevantText : fullText.substring(0, 50000);
 
             // =================================================================================
             // ETAPA 2: ESTRUTURAÇÃO (JSON Extraction)
@@ -272,7 +279,11 @@ export const Importer: React.FC<ImporterProps> = ({ apiKey, model = 'gpt-4o-mini
 
         } catch (error: any) {
             console.error(error);
-            alert(`Erro na Importação: ${error.message}`);
+            let errMsg = error.message;
+            if (errMsg.includes('Failed to fetch')) {
+                errMsg = "Falha de Conexão (Failed to fetch). Verifique se você possui AdBlock ativo ou restrições de rede.";
+            }
+            alert(`Erro na Importação: ${errMsg}`);
             setState(prev => ({ 
                 ...prev, 
                 step: 'UPLOAD',
