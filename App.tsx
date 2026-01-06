@@ -253,7 +253,7 @@ function App() {
 
       autoSaveTimeoutRef.current = setTimeout(async () => {
           await performAutoSave();
-      }, 5000); 
+      }, 2000); // Reduzido para 2s para evitar perda de dados se o usuário sair rápido
 
       return () => {
           if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
@@ -265,6 +265,8 @@ function App() {
           if (syncState === 'SYNCING') return; 
           setSyncState('SAVING');
           
+          console.log("Iniciando backup para Gist:", user.backupGistId);
+
           const backupData = {
               version: 2,
               timestamp: new Date().toISOString(),
@@ -272,7 +274,7 @@ function App() {
               plans,
               currentPlanId,
               errors: errorLogs,
-              // User data sync: salva tudo exceto as chaves sensíveis
+              // User data sync: EXPLICITAMENTE CONSTRUÍDO para evitar referências antigas
               user: { 
                   name: user.name,
                   email: user.email,
@@ -307,6 +309,7 @@ function App() {
           });
 
           setSyncState('SAVED');
+          console.log("Backup concluído.");
           setTimeout(() => setSyncState('IDLE'), 3000); 
           
       } catch (e) {
@@ -315,11 +318,13 @@ function App() {
       }
   };
 
-  // Funcao de Restore Atualizada: aceita 'forcedKeys' para injetar chaves durante o unlock
+  // Funcao de Restore Atualizada
   const handleRestoreData = async (gistId: string, token: string, silent = false, forcedKeys?: Partial<UserProfile>) => {
         try {
             isRestoring.current = true; 
             if (silent) setSyncState('SYNCING');
+
+            console.log("Baixando dados do Gist:", gistId);
 
             const response = await fetch(`https://api.github.com/gists/${gistId}`, {
                 headers: { 'Authorization': `token ${token}` }
@@ -348,20 +353,20 @@ function App() {
             
             // Restauração Robusta do Perfil
             if (content.user) {
-                console.log("Sincronizando perfil:", content.user.name);
+                console.log("Restaurando perfil de usuário:", content.user.name);
                 setUser(prev => {
                     // 1. Começa com o estado anterior
                     // 2. Sobrescreve com TUDO que veio da nuvem (nome, avatar, email...)
+                    // O spread operator garante que content.user.name sobrescreva prev.name
                     const mergedUser = { ...prev, ...content.user };
                     
-                    // 3. Reaplica as chaves de segurança (que não vêm da nuvem)
-                    // Se 'forcedKeys' veio do unlock, usa elas (mais seguro/recente).
-                    // Se não, mantém o que já estava em 'prev'.
+                    // 3. Reaplica as chaves de segurança (que não vêm da nuvem, ou vêm vazias)
                     if (forcedKeys) {
                         mergedUser.openAiApiKey = forcedKeys.openAiApiKey || prev.openAiApiKey;
                         mergedUser.githubToken = forcedKeys.githubToken || prev.githubToken;
                         mergedUser.backupGistId = forcedKeys.backupGistId || prev.backupGistId;
                     } else {
+                        // Se não tem forcedKeys, mantém as locais se existirem
                         mergedUser.openAiApiKey = prev.openAiApiKey;
                         mergedUser.githubToken = prev.githubToken;
                         mergedUser.backupGistId = prev.backupGistId;
@@ -369,6 +374,8 @@ function App() {
                     
                     return mergedUser;
                 });
+            } else {
+                console.warn("Objeto 'user' não encontrado no backup. Usando perfil local.");
             }
             
             if (!silent) alert("Dados restaurados com sucesso!");
@@ -396,7 +403,7 @@ function App() {
           
           sessionStorage.setItem('studyflow_session_pass', vaultPasswordInput);
 
-          // Atualiza chaves localmente
+          // Atualiza chaves localmente imediatamente
           setUser(prev => ({
               ...prev,
               openAiApiKey: decryptedData.openAiApiKey || prev.openAiApiKey,
@@ -408,11 +415,11 @@ function App() {
 
           // Lógica de Sync Automático (Pull)
           const hasBackupCreds = decryptedData.backupGistId && decryptedData.githubToken;
-          const isFreshSession = subjects.length === 0;
+          const isFreshSession = subjects.length === 0; // Se não tem matérias, assume que precisa baixar tudo
 
           if (hasBackupCreds && isFreshSession) {
               console.log("Sessão limpa detectada. Baixando dados da nuvem...");
-              // Passa as chaves descriptografadas explicitamente para garantir que o restore as use
+              // Passa as chaves descriptografadas explicitamente para garantir que o restore as use e não perca
               await handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken, true, decryptedData);
           }
           
