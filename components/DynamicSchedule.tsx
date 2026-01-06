@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { Subject, PriorityLevel, ScheduleItem, ProficiencyLevel, UserProfile, Topic, getSubjectIcon, ErrorLog, StudyLog } from '../types';
+import { Subject, PriorityLevel, ScheduleItem, ProficiencyLevel, UserProfile, Topic, getSubjectIcon, ErrorLog } from '../types';
 
 interface DynamicScheduleProps {
     subjects: Subject[];
@@ -126,12 +126,21 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
     const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
     const getFirstDayOfMonth = (year: number, month: number) => new Date(year, month, 1).getDay();
 
+    // PERFORMANCE: Pre-calculate error counts
+    const subjectErrorCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        errorLogs.forEach(log => {
+            counts[log.subjectId] = (counts[log.subjectId] || 0) + 1;
+        });
+        return counts;
+    }, [errorLogs]);
+
     // =========================================================
-    // MOTOR DE AGENDAMENTO HÍBRIDO (PASSADO REAL + FUTURO PROJETADO)
+    // MOTOR DE AGENDAMENTO HÍBRIDO (LINEAR & OTIMIZADO)
     // =========================================================
     const scheduleData = useMemo(() => {
         const now = new Date();
-        now.setHours(0, 0, 0, 0); // Normalizar hoje
+        now.setHours(0, 0, 0, 0);
         const currentRealDay = now.getDate();
         const currentRealMonth = now.getMonth();
         const currentRealYear = now.getFullYear();
@@ -140,64 +149,45 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
         const viewingYear = currentDate.getFullYear();
         
         const isViewingCurrentMonth = viewingMonth === currentRealMonth && viewingYear === currentRealYear;
-        const isViewingFutureMonth = viewingYear > currentRealYear || (viewingYear === currentRealYear && viewingMonth > currentRealMonth);
         const isViewingPastMonth = viewingYear < currentRealYear || (viewingYear === currentRealYear && viewingMonth < currentRealMonth);
 
         const schedule: { [key: number]: ScheduleItem[] | null } = {}; 
         const daysCount = getDaysInMonth(viewingYear, viewingMonth);
 
-        // --- 1. Preparação da Fila Inteligente (Smart Cycle) ---
-        let smartQueue: Subject[] = [];
+        // --- 1. CONSTRUÇÃO DO CICLO LINEAR (BARALHO VICIADO) ---
+        // Cria uma lista estática baseada nos pesos. Ex: [A, A, A, B, B, C]
+        // Complexidade: O(N) onde N é a soma dos pesos (muito baixo)
+        let cycleDeck: Subject[] = [];
         const planSubjects = activeSubjects.filter(s => selectedSubjectIds.has(s.id));
         
         if (planSubjects.length > 0) {
-            // Algoritmo de "Weighted Round Robin" com Intercalação
-            const weightedPool: Subject[] = [];
-            
             planSubjects.forEach(sub => {
-                // Cálculo de Peso Inteligente
-                // Prioridade: High=3, Medium=2, Low=1
                 const pWeight = sub.priority === 'HIGH' ? 3 : sub.priority === 'LOW' ? 1 : 2;
-                
-                // Proficiência (Inverso): Beginner=3, Intermediate=2, Advanced=1
-                // Quanto menos sabe, mais aparece.
                 const kWeight = sub.proficiency === 'BEGINNER' ? 3 : sub.proficiency === 'ADVANCED' ? 1 : 2;
-                
-                // Peso Final = Prioridade * Necessidade de Estudo
-                // Max: 9 (Alta Prio + Iniciante), Min: 1 (Baixa Prio + Avançado)
-                const totalWeight = pWeight * kWeight;
+                // Limitamos o peso máximo para evitar arrays gigantes desnecessários
+                const totalWeight = Math.min(pWeight * kWeight, 9); 
 
-                for(let k=0; k < totalWeight; k++) weightedPool.push(sub);
+                for(let k=0; k < totalWeight; k++) cycleDeck.push(sub);
             });
 
-            // Embaralhar o pool ponderado, mas garantindo espalhamento (Interleaving)
-            // Simples shuffle não garante que não teremos [Matemática, Matemática]
-            // Implementação de "Fair Shuffle" simplificada:
-            
-            // 1. Agrupar por ID
-            const counts: {[id: string]: number} = {};
-            weightedPool.forEach(s => counts[s.id] = (counts[s.id] || 0) + 1);
-            
-            // 2. Reconstruir a fila tentando não repetir o anterior
-            const tempPool = [...weightedPool];
-            let lastId = '';
-            
-            // Tentativa de ordenação por "distance"
-            while (tempPool.length > 0) {
-                // Tenta achar um candidato diferente do último
-                let candidateIndex = tempPool.findIndex(s => s.id !== lastId);
-                
-                // Se não achar (só sobrou o mesmo), pega o primeiro
-                if (candidateIndex === -1) candidateIndex = 0;
-                
-                const selected = tempPool[candidateIndex];
-                smartQueue.push(selected);
-                lastId = selected.id;
-                tempPool.splice(candidateIndex, 1);
+            // Embaralhamento Fisher-Yates Simples
+            for (let i = cycleDeck.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [cycleDeck[i], cycleDeck[j]] = [cycleDeck[j], cycleDeck[i]];
+            }
+
+            // Otimização de Adjacência (Evitar AA BB CC) - Passagem única O(N)
+            // Se o item atual for igual ao anterior, tenta trocar com o próximo
+            for (let i = 1; i < cycleDeck.length - 1; i++) {
+                if (cycleDeck[i].id === cycleDeck[i-1].id) {
+                    // Troca com o próximo
+                    [cycleDeck[i], cycleDeck[i+1]] = [cycleDeck[i+1], cycleDeck[i]];
+                }
             }
         }
 
-        let queueCursor = 0;
+        // Variáveis de Estado da Simulação
+        let globalDeckCursor = 0;
         const pendingReviews: { [key: number]: Subject[] } = {};
         
         // Cursores de Tópicos
@@ -207,14 +197,22 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
             subjectTopicCursors[s.id] = firstPendingIndex === -1 ? 0 : firstPendingIndex;
         });
 
-        // Função Helper SRS
+        // Helper: Get Next from Deck
+        const getNextSubject = (): Subject | null => {
+            if (cycleDeck.length === 0) return null;
+            const sub = cycleDeck[globalDeckCursor % cycleDeck.length];
+            globalDeckCursor++;
+            return sub;
+        };
+
+        // Helper SRS
         const getReviewIntervals = (subject: Subject): number[] => {
             if (srsMode === 'MANUAL') {
                 if (srsPace === 'ACCELERATED') return [1, 3, 7];
                 if (srsPace === 'RELAXED') return [3, 10, 20];
                 return [1, 7, 14]; 
             }
-            const subErrors = errorLogs.filter(e => e.subjectId === subject.id).length;
+            const subErrors = subjectErrorCounts[subject.id] || 0;
             const accuracy = 70; 
             if (subErrors > 3 || accuracy < 60) return [1, 3, 7]; 
             if (accuracy > 85 && subErrors === 0) return [3, 14, 30]; 
@@ -266,11 +264,11 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
             }
 
             // =================================================
-            // LOGICA PARA FUTURO (PROJEÇÃO INTELIGENTE)
+            // LOGICA PARA FUTURO (DISTRIBUIÇÃO LINEAR)
             // =================================================
             if (!isDayActive) {
                 schedule[day] = null;
-                // Empurra revisões para o próximo dia útil
+                // Empurra revisões para o próximo dia
                 if (pendingReviews[day]) {
                     const nextDay = day + 1;
                     if (!pendingReviews[nextDay]) pendingReviews[nextDay] = [];
@@ -281,7 +279,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                 continue;
             }
 
-            // 1. Revisões (Alta Prioridade)
+            // 1. Revisões (Prioridade Máxima)
             if (pendingReviews[day]) {
                 pendingReviews[day].forEach(revSub => {
                     if (selectedSubjectIds.has(revSub.id)) {
@@ -290,39 +288,34 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                 });
             }
 
-            // 2. Teoria (Fila Inteligente)
+            // 2. Teoria (Usa o Baralho Viciado)
             let slotsForTheory = subjectsPerDay - dailyItems.length;
             if (slotsForTheory < 0) slotsForTheory = 0; 
 
             for (let i = 0; i < slotsForTheory; i++) {
-                if (smartQueue.length === 0) break;
+                // Simplesmente pega o próximo do baralho. Sem loops while, sem travamentos.
+                const selectedSubject = getNextSubject();
+                
+                if (!selectedSubject) break;
 
-                // Seleciona próximo do ciclo
-                const candidateSubject = smartQueue[queueCursor];
-                queueCursor = (queueCursor + 1) % smartQueue.length;
+                const idx = subjectTopicCursors[selectedSubject.id];
+                if (selectedSubject.topics && idx < selectedSubject.topics.length) {
+                    const topic = selectedSubject.topics[idx];
+                    subjectTopicCursors[selectedSubject.id] = idx + 1;
 
-                // Verifica Intercalação no mesmo dia (evita repetir matéria se possível)
-                // Só repete se a fila for menor que os slots do dia (caso de poucas matérias)
-                const alreadyToday = dailyItems.some(item => item.subject.id === candidateSubject.id);
-                if (alreadyToday && smartQueue.length > subjectsPerDay) {
-                    // Pula esse e tenta o próximo
-                    i--; 
-                    continue;
-                }
-
-                const idx = subjectTopicCursors[candidateSubject.id];
-                if (candidateSubject.topics && idx < candidateSubject.topics.length) {
-                    const topic = candidateSubject.topics[idx];
-                    subjectTopicCursors[candidateSubject.id] = idx + 1;
-
-                    dailyItems.push({ subject: candidateSubject, type: 'THEORY', topic: topic });
+                    dailyItems.push({ subject: selectedSubject, type: 'THEORY', topic: topic });
 
                     if (enableSpacedRepetition) {
-                        const intervals = getReviewIntervals(candidateSubject);
+                        const intervals = getReviewIntervals(selectedSubject);
                         intervals.forEach(interval => {
-                            if (day + interval <= daysCount + 30) addReview(day + interval, candidateSubject);
+                            if (day + interval <= daysCount + 30) addReview(day + interval, selectedSubject);
                         });
                     }
+                } else {
+                    // Se acabou os tópicos dessa matéria, tenta a próxima do baralho na próxima iteração do 'i'
+                    // Mas consome o slot atual com "Revisão Geral" ou pula
+                    // Para simplificar e evitar recursão: marcamos como teoria geral
+                    dailyItems.push({ subject: selectedSubject, type: 'THEORY' }); 
                 }
             }
 
@@ -340,7 +333,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
 
         return schedule;
 
-    }, [activeSubjects, subjectsPerDay, currentDate, enableSpacedRepetition, selectedSubjectIds, dailyTimeMinutes, errorLogs, srsPace, srsMode, activeWeekDays]);
+    }, [activeSubjects, subjectsPerDay, currentDate, enableSpacedRepetition, selectedSubjectIds, dailyTimeMinutes, subjectErrorCounts, srsPace, srsMode, activeWeekDays]);
 
     const handleMonthChange = (offset: number) => {
         const newDate = new Date(currentDate.getFullYear(), currentDate.getMonth() + offset, 1);
@@ -384,6 +377,9 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                     <div className={`text-[10px] truncate border-l border-current mt-0.5 pl-5 ${isPast ? 'line-through opacity-70' : 'opacity-80'}`}>
                         {item.topic.name}
                     </div>
+                )}
+                {!item.topic && !isReview && (
+                    <div className="text-[10px] italic opacity-60 pl-6">Revisão Geral / Questões</div>
                 )}
                 <div className="flex justify-between items-center mt-1 pl-1 opacity-70">
                     <span className="font-mono text-[10px]">{item.durationMinutes} min</span>
@@ -554,7 +550,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
             )}
 
             {/* Sidebar de Configuração */}
-            <div className={`fixed inset-y-0 left-0 z-40 lg:relative h-full bg-card-light dark:bg-card-dark border-r border-border-light dark:border-border-dark transition-transform duration-300 ease-in-out flex flex-col w-full sm:w-96 ${isSidebarOpen ? 'translate-x-0' : '-translate-x-full lg:translate-x-0 lg:w-0 lg:hidden xl:w-96 xl:block'}`}>
+            <div className={`fixed inset-y-0 left-0 z-40 lg:relative h-full bg-card-light dark:bg-card-dark border-r border-border-light dark:border-border-dark transition-all duration-300 ease-in-out flex flex-col ${isSidebarOpen ? 'translate-x-0 w-full sm:w-96 lg:w-96' : '-translate-x-full w-full sm:w-96 lg:translate-x-0 lg:w-0 lg:overflow-hidden'}`}>
                 <div className="p-4 border-b border-border-light dark:border-border-dark flex items-center justify-between">
                     <h2 className="font-bold text-text-primary-light dark:text-white flex items-center gap-2">
                         <span className="material-symbols-outlined">tune</span>
