@@ -121,189 +121,6 @@ function App() {
     };
   });
 
-  // --- VAULT DETECTION LOGIC (HYBRID: LOCAL + REMOTE + RAW FALLBACK) ---
-  useEffect(() => {
-      const checkVault = async () => {
-          try {
-              // 1. Tenta LocalStorage (Mais rápido)
-              const localVault = localStorage.getItem('studyflow_secure_vault');
-              if (localVault) {
-                  console.log("Cofre encontrado no LocalStorage.");
-                  setVaultEncryptedData(localVault);
-                  setIsVaultLocked(true); 
-                  setCheckingVault(false);
-                  return;
-              }
-
-              // 2. Tenta buscar vault.json relativo (Deploy padrão)
-              // Adiciona timestamp para evitar cache do browser
-              try {
-                  const response = await fetch(`./vault.json?t=${Date.now()}`);
-                  if (response.ok) {
-                      const json = await response.json();
-                      if (json.data) {
-                          console.log("Cofre remoto (vault.json) detectado via fetch relativo.");
-                          setVaultEncryptedData(json.data);
-                          localStorage.setItem('studyflow_secure_vault', json.data);
-                          setIsVaultLocked(true);
-                          setCheckingVault(false);
-                          return;
-                      }
-                  }
-              } catch (e) {
-                  console.log("Fetch relativo falhou ou arquivo não encontrado, tentando fallback Raw...");
-              }
-
-              // 3. Fallback: Busca via Raw GitHub (para contornar cache ou 404 do Pages)
-              // Detecta usuário e repo da URL: https://user.github.io/repo/
-              const hostname = window.location.hostname;
-              if (hostname.includes('github.io')) {
-                  const user = hostname.split('.')[0];
-                  // O pathname começa com /, então split dá ['', 'repo', '...']
-                  const parts = window.location.pathname.split('/').filter(p => p); 
-                  const repo = parts[0]; 
-
-                  if (user && repo) {
-                      // Tenta main e master pois o nome da branch padrão varia
-                      const branches = ['main', 'master'];
-                      for (const branch of branches) {
-                          try {
-                              const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/${branch}/vault.json?t=${Date.now()}`;
-                              console.log(`Tentando resgate Raw: ${rawUrl}`);
-                              const rawRes = await fetch(rawUrl);
-                              if (rawRes.ok) {
-                                  const rawJson = await rawRes.json();
-                                  if (rawJson.data) {
-                                      console.log(`Cofre recuperado via Raw GitHub (${branch}).`);
-                                      setVaultEncryptedData(rawJson.data);
-                                      localStorage.setItem('studyflow_secure_vault', rawJson.data);
-                                      setIsVaultLocked(true);
-                                      setCheckingVault(false);
-                                      return;
-                                  }
-                              }
-                          } catch (e) {
-                              console.log(`Falha ao buscar branch ${branch}`);
-                          }
-                      }
-                  }
-              }
-          } catch (e) {
-              console.log("Nenhum cofre detectado após todas as tentativas.");
-          } finally {
-              setCheckingVault(false);
-          }
-      };
-      
-      checkVault();
-  }, []);
-
-  const handleRestoreData = async (gistId: string, token: string) => {
-        try {
-            const response = await fetch(`https://api.github.com/gists/${gistId}`, {
-                headers: { 'Authorization': `token ${token}` }
-            });
-            
-            if (!response.ok) throw new Error("Falha ao buscar backup.");
-            
-            const data = await response.json();
-            const fileKey = Object.keys(data.files).find(key => key.includes('studyflow'));
-            
-            if (!fileKey) throw new Error("Arquivo de backup inválido.");
-            
-            const content = JSON.parse(data.files[fileKey].content);
-            
-            // Restauração em Massa
-            if (content.subjects) localStorage.setItem('studyflow_subjects', JSON.stringify(content.subjects));
-            if (content.plans) localStorage.setItem('studyflow_plans', JSON.stringify(content.plans));
-            if (content.errors) localStorage.setItem('studyflow_errors', JSON.stringify(content.errors));
-            if (content.simulatedExams) localStorage.setItem('studyflow_simulated_exams', JSON.stringify(content.simulatedExams));
-            if (content.savedNotes) localStorage.setItem('studyflow_saved_notes', JSON.stringify(content.savedNotes));
-            if (content.currentPlanId) localStorage.setItem('studyflow_current_plan', content.currentPlanId);
-            
-            alert("Dados restaurados com sucesso! A página será recarregada.");
-            window.location.reload(); 
-        } catch (e: any) {
-            alert("Erro ao restaurar dados: " + e.message);
-        }
-  };
-
-  const handleUnlockVault = async (e: React.FormEvent) => {
-      e.preventDefault();
-      if (!vaultEncryptedData) return;
-      
-      setVaultError('');
-      setCheckingVault(true); // Usa loader enquanto processa
-      
-      try {
-          const decryptedData = await decryptVault(vaultEncryptedData, vaultPasswordInput);
-          
-          // 1. Atualizar Estado do Usuário com as Chaves
-          setUser(prev => ({
-              ...prev,
-              openAiApiKey: decryptedData.openAiApiKey || prev.openAiApiKey,
-              githubToken: decryptedData.githubToken || prev.githubToken,
-              backupGistId: decryptedData.backupGistId || prev.backupGistId
-          }));
-          
-          // 2. Verificar se precisamos restaurar dados (Sessão Vazia + Backup Disponível)
-          // Se subjects estiver vazio e tivermos um token e gist, oferecemos a restauração
-          const hasBackup = decryptedData.backupGistId && decryptedData.githubToken;
-          const isFreshSession = subjects.length === 0;
-
-          if (hasBackup && isFreshSession) {
-              // Delay pequeno para garantir que a UI atualize antes do confirm
-              setTimeout(async () => {
-                  if (window.confirm("Cofre desbloqueado! Detectamos um backup na nuvem e seu navegador está vazio.\n\nDeseja BAIXAR seus dados (Matérias, Planos, Histórico) agora?")) {
-                      await handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken);
-                  }
-              }, 100);
-          }
-          
-          setIsVaultLocked(false);
-          setVaultPasswordInput('');
-          
-      } catch (err) {
-          console.error(err);
-          setVaultError("Senha incorreta ou cofre corrompido.");
-      } finally {
-          setCheckingVault(false);
-      }
-  };
-
-  // --- MAGIC LINK LISTENER (Sync) ---
-  useEffect(() => {
-      const params = new URLSearchParams(window.location.search);
-      const syncCode = params.get('sync');
-
-      if (syncCode) {
-          try {
-              const decoded = fromBase64(syncCode);
-              const data = JSON.parse(decoded);
-
-              if (data.k || data.g) {
-                  if (window.confirm("Link de Sincronização detectado! Deseja importar as chaves contidas neste link?")) {
-                      setUser(prev => ({
-                          ...prev,
-                          openAiApiKey: data.k || prev.openAiApiKey,
-                          githubToken: data.g || prev.githubToken,
-                          backupGistId: data.b || prev.backupGistId
-                      }));
-                      
-                      const newUrl = window.location.pathname;
-                      window.history.replaceState({}, document.title, newUrl);
-                      
-                      alert("Chaves importadas com sucesso! Seus dados agora estão configurados.");
-                      setIsProfileOpen(true);
-                  }
-              }
-          } catch (e) {
-              console.error("Erro ao processar Link Mágico", e);
-              alert("O link de sincronização parece estar corrompido ou inválido.");
-          }
-      }
-  }, []);
-
   // --- DATA MIGRATION & PERSISTENCE LAYER ---
   // 1. Plan Management State (Robust Load)
   const [plans, setPlans] = useState<StudyPlan[]>(() => {
@@ -458,6 +275,185 @@ function App() {
           selectedSubjects: new Set()
       };
   });
+
+  // --- VAULT DETECTION LOGIC (HYBRID: LOCAL + REMOTE + RAW FALLBACK) ---
+  useEffect(() => {
+      const checkVault = async () => {
+          try {
+              // 1. Tenta LocalStorage (Mais rápido)
+              const localVault = localStorage.getItem('studyflow_secure_vault');
+              if (localVault) {
+                  console.log("Cofre encontrado no LocalStorage.");
+                  setVaultEncryptedData(localVault);
+                  setIsVaultLocked(true); 
+                  setCheckingVault(false);
+                  return;
+              }
+
+              // 2. Tenta buscar vault.json relativo (Deploy padrão)
+              // Adiciona timestamp para evitar cache do browser
+              try {
+                  const response = await fetch(`./vault.json?t=${Date.now()}`);
+                  if (response.ok) {
+                      const json = await response.json();
+                      if (json.data) {
+                          console.log("Cofre remoto (vault.json) detectado via fetch relativo.");
+                          setVaultEncryptedData(json.data);
+                          localStorage.setItem('studyflow_secure_vault', json.data);
+                          setIsVaultLocked(true);
+                          setCheckingVault(false);
+                          return;
+                      }
+                  }
+              } catch (e) {
+                  console.log("Fetch relativo falhou ou arquivo não encontrado, tentando fallback Raw...");
+              }
+
+              // 3. Fallback: Busca via Raw GitHub (para contornar cache ou 404 do Pages)
+              // Detecta usuário e repo da URL: https://user.github.io/repo/
+              const hostname = window.location.hostname;
+              if (hostname.includes('github.io')) {
+                  const user = hostname.split('.')[0];
+                  // O pathname começa com /, então split dá ['', 'repo', '...']
+                  const parts = window.location.pathname.split('/').filter(p => p); 
+                  const repo = parts[0]; 
+
+                  if (user && repo) {
+                      // Tenta main e master pois o nome da branch padrão varia
+                      const branches = ['main', 'master'];
+                      for (const branch of branches) {
+                          try {
+                              const rawUrl = `https://raw.githubusercontent.com/${user}/${repo}/${branch}/vault.json?t=${Date.now()}`;
+                              console.log(`Tentando resgate Raw: ${rawUrl}`);
+                              const rawRes = await fetch(rawUrl);
+                              if (rawRes.ok) {
+                                  const rawJson = await rawRes.json();
+                                  if (rawJson.data) {
+                                      console.log(`Cofre recuperado via Raw GitHub (${branch}).`);
+                                      setVaultEncryptedData(rawJson.data);
+                                      localStorage.setItem('studyflow_secure_vault', rawJson.data);
+                                      setIsVaultLocked(true);
+                                      setCheckingVault(false);
+                                      return;
+                                  }
+                              }
+                          } catch (e) {
+                              console.log(`Falha ao buscar branch ${branch}`);
+                          }
+                      }
+                  }
+              }
+          } catch (e) {
+              console.log("Nenhum cofre detectado após todas as tentativas.");
+          } finally {
+              setCheckingVault(false);
+          }
+      };
+      
+      checkVault();
+  }, []);
+
+  const handleRestoreData = async (gistId: string, token: string) => {
+        try {
+            const response = await fetch(`https://api.github.com/gists/${gistId}`, {
+                headers: { 'Authorization': `token ${token}` }
+            });
+            
+            if (!response.ok) throw new Error("Falha ao buscar backup.");
+            
+            const data = await response.json();
+            const fileKey = Object.keys(data.files).find(key => key.includes('studyflow'));
+            
+            if (!fileKey) throw new Error("Arquivo de backup inválido.");
+            
+            const content = JSON.parse(data.files[fileKey].content);
+            
+            // Restauração de Estado (Sem Reload)
+            if (content.subjects) {
+                const hydratedSubjects = content.subjects.map((s: any) => ({
+                    ...s,
+                    logs: s.logs ? s.logs.map((l: any) => ({ ...l, date: new Date(l.date) })) : []
+                }));
+                setSubjects(hydratedSubjects);
+            }
+            if (content.plans) {
+                const hydratedPlans = content.plans.map((p: any) => ({ ...p, createdAt: new Date(p.createdAt) }));
+                setPlans(hydratedPlans);
+            }
+            if (content.errors) {
+                const hydratedErrors = content.errors.map((e: any) => ({ ...e, createdAt: new Date(e.createdAt) }));
+                setErrorLogs(hydratedErrors);
+            }
+            if (content.simulatedExams) {
+                const hydratedExams = content.simulatedExams.map((e: any) => ({ ...e, date: new Date(e.date) }));
+                setSimulatedExams(hydratedExams);
+            }
+            if (content.savedNotes) {
+                const hydratedNotes = content.savedNotes.map((n: any) => ({ ...n, createdAt: new Date(n.createdAt) }));
+                setSavedNotes(hydratedNotes);
+            }
+            if (content.currentPlanId) setCurrentPlanId(content.currentPlanId);
+            
+            if (content.user) {
+                setUser(prev => ({
+                    ...prev,
+                    ...content.user, // Restaura Nome, Avatar e Configs do backup
+                    // Preserva as chaves atuais (que vieram do cofre)
+                    openAiApiKey: prev.openAiApiKey,
+                    githubToken: prev.githubToken,
+                    backupGistId: prev.backupGistId
+                }));
+            }
+            
+            alert("Dados e perfil restaurados com sucesso!");
+        } catch (e: any) {
+            alert("Erro ao restaurar dados: " + e.message);
+        }
+  };
+
+  const handleUnlockVault = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!vaultEncryptedData) return;
+      
+      setVaultError('');
+      setCheckingVault(true); // Usa loader enquanto processa
+      
+      try {
+          const decryptedData = await decryptVault(vaultEncryptedData, vaultPasswordInput);
+          
+          // 1. Atualizar Estado do Usuário com as Chaves
+          setUser(prev => ({
+              ...prev,
+              openAiApiKey: decryptedData.openAiApiKey || prev.openAiApiKey,
+              githubToken: decryptedData.githubToken || prev.githubToken,
+              backupGistId: decryptedData.backupGistId || prev.backupGistId
+          }));
+          
+          // 2. Verificar se precisamos restaurar dados (Sessão Vazia + Backup Disponível)
+          // Se subjects estiver vazio e tivermos um token e gist, oferecemos a restauração
+          const hasBackup = decryptedData.backupGistId && decryptedData.githubToken;
+          const isFreshSession = subjects.length === 0;
+
+          setIsVaultLocked(false); // Desbloqueia a UI primeiro
+
+          if (hasBackup && isFreshSession) {
+              // Delay pequeno para garantir que a UI renderize o Dashboard vazio antes do prompt
+              setTimeout(async () => {
+                  if (window.confirm("Cofre desbloqueado! Detectamos um backup na nuvem e seu navegador está vazio.\n\nDeseja BAIXAR seus dados (Matérias, Perfil, Histórico) agora?")) {
+                      await handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken);
+                  }
+              }, 500);
+          }
+          
+          setVaultPasswordInput('');
+          
+      } catch (err) {
+          console.error(err);
+          setVaultError("Senha incorreta ou cofre corrompido.");
+      } finally {
+          setCheckingVault(false);
+      }
+  };
 
   // Persistence Effects (Salvar Automaticamente quando muda)
   useEffect(() => { localStorage.setItem('studyflow_subjects', JSON.stringify(subjects)); }, [subjects]);
