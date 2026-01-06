@@ -146,46 +146,61 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
         const schedule: { [key: number]: ScheduleItem[] | null } = {}; 
         const daysCount = getDaysInMonth(viewingYear, viewingMonth);
 
-        // --- 1. Preparação da Fila Inteligente (Smart Queue) ---
-        // Cria uma sequência determinística baseada em prioridade para o futuro
+        // --- 1. Preparação da Fila Inteligente (Smart Cycle) ---
         let smartQueue: Subject[] = [];
-        
-        // Apenas matérias ativas e selecionadas entram na fila de projeção
         const planSubjects = activeSubjects.filter(s => selectedSubjectIds.has(s.id));
         
         if (planSubjects.length > 0) {
-            // Algoritmo de "Weighted Round Robin" (Intercalação Ponderada)
+            // Algoritmo de "Weighted Round Robin" com Intercalação
             const weightedPool: Subject[] = [];
+            
             planSubjects.forEach(sub => {
-                const weight = sub.priority === 'HIGH' ? 3 : sub.priority === 'LOW' ? 1 : 2;
-                for(let k=0; k<weight; k++) weightedPool.push(sub);
+                // Cálculo de Peso Inteligente
+                // Prioridade: High=3, Medium=2, Low=1
+                const pWeight = sub.priority === 'HIGH' ? 3 : sub.priority === 'LOW' ? 1 : 2;
+                
+                // Proficiência (Inverso): Beginner=3, Intermediate=2, Advanced=1
+                // Quanto menos sabe, mais aparece.
+                const kWeight = sub.proficiency === 'BEGINNER' ? 3 : sub.proficiency === 'ADVANCED' ? 1 : 2;
+                
+                // Peso Final = Prioridade * Necessidade de Estudo
+                // Max: 9 (Alta Prio + Iniciante), Min: 1 (Baixa Prio + Avançado)
+                const totalWeight = pWeight * kWeight;
+
+                for(let k=0; k < totalWeight; k++) weightedPool.push(sub);
             });
 
-            // Embaralhar determinísticamente (baseado no ID ou Nome para manter estabilidade ao renderizar)
-            // Aqui usamos um sort simples para garantir que a ordem seja sempre A, B, C... e não random
-            weightedPool.sort((a, b) => a.name.localeCompare(b.name));
-
-            // Distribuir para evitar repetições seguidas (Ex: A A A B B -> A B A B A)
-            let uniqueItems = Array.from(new Set(weightedPool));
-            let counts = uniqueItems.map(item => weightedPool.filter(i => i.id === item.id).length);
+            // Embaralhar o pool ponderado, mas garantindo espalhamento (Interleaving)
+            // Simples shuffle não garante que não teremos [Matemática, Matemática]
+            // Implementação de "Fair Shuffle" simplificada:
             
-            while (weightedPool.length > 0) {
-                for (let i = 0; i < uniqueItems.length; i++) {
-                    if (counts[i] > 0) {
-                        smartQueue.push(uniqueItems[i]);
-                        counts[i]--;
-                        // Remove do pool virtual
-                        const idx = weightedPool.findIndex(x => x.id === uniqueItems[i].id);
-                        if(idx !== -1) weightedPool.splice(idx, 1);
-                    }
-                }
+            // 1. Agrupar por ID
+            const counts: {[id: string]: number} = {};
+            weightedPool.forEach(s => counts[s.id] = (counts[s.id] || 0) + 1);
+            
+            // 2. Reconstruir a fila tentando não repetir o anterior
+            const tempPool = [...weightedPool];
+            let lastId = '';
+            
+            // Tentativa de ordenação por "distance"
+            while (tempPool.length > 0) {
+                // Tenta achar um candidato diferente do último
+                let candidateIndex = tempPool.findIndex(s => s.id !== lastId);
+                
+                // Se não achar (só sobrou o mesmo), pega o primeiro
+                if (candidateIndex === -1) candidateIndex = 0;
+                
+                const selected = tempPool[candidateIndex];
+                smartQueue.push(selected);
+                lastId = selected.id;
+                tempPool.splice(candidateIndex, 1);
             }
         }
 
         let queueCursor = 0;
         const pendingReviews: { [key: number]: Subject[] } = {};
         
-        // Cursores de Tópicos (para saber qual o próximo tópico de cada matéria)
+        // Cursores de Tópicos
         const subjectTopicCursors: Record<string, number> = {};
         planSubjects.forEach(s => {
             const firstPendingIndex = s.topics.findIndex(t => !t.completed);
@@ -200,7 +215,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                 return [1, 7, 14]; 
             }
             const subErrors = errorLogs.filter(e => e.subjectId === subject.id).length;
-            const accuracy = 70; // Simplificado para performance, idealmente calcularia dos logs
+            const accuracy = 70; 
             if (subErrors > 3 || accuracy < 60) return [1, 3, 7]; 
             if (accuracy > 85 && subErrors === 0) return [3, 14, 30]; 
             return [1, 7, 14];
@@ -219,7 +234,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
             const currentDayOfWeek = currentDateObj.getDay();
             const isDayActive = activeWeekDays.includes(currentDayOfWeek);
             
-            // Verifica se é PASSADO, PRESENTE ou FUTURO
             let isPastDate = false;
             if (isViewingPastMonth) isPastDate = true;
             else if (isViewingCurrentMonth && day < currentRealDay) isPastDate = true;
@@ -227,23 +241,19 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
             const dailyItems: ScheduleItem[] = [];
 
             // =================================================
-            // LOGICA PARA DIAS PASSADOS (IMUTÁVEL / HISTÓRICO)
+            // LOGICA PARA DIAS PASSADOS (HISTÓRICO)
             // =================================================
             if (isPastDate) {
-                // Recuperar o que REALMENTE aconteceu neste dia através dos logs
                 const dateStr = currentDateObj.toISOString().split('T')[0];
-                
-                // Procurar em todas as matérias logs desta data
                 activeSubjects.forEach(sub => {
                     if (sub.logs) {
                         sub.logs.forEach(log => {
                             const logDateStr = new Date(log.date).toISOString().split('T')[0];
                             if (logDateStr === dateStr) {
-                                // Encontrou um estudo realizado!
                                 const topicObj = sub.topics.find(t => t.id === log.topicId) || { id: 'unknown', name: log.topicName, completed: true };
                                 dailyItems.push({
                                     subject: sub,
-                                    type: 'THEORY', // Ou deduzir do log se tiver
+                                    type: 'THEORY',
                                     topic: topicObj as Topic,
                                     durationMinutes: log.durationMinutes
                                 });
@@ -251,22 +261,16 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                         });
                     }
                 });
-
-                // Se não houve estudo e o dia estava "ativo", marcamos como vazio/falta
-                // Se o dia estava inativo, marcamos como descanso
-                // Para simplificar a UI, se não tem itens, deixamos vazio
                 schedule[day] = dailyItems; 
-                continue; // Pula lógica de agendamento futuro
+                continue; 
             }
 
             // =================================================
             // LOGICA PARA FUTURO (PROJEÇÃO INTELIGENTE)
             // =================================================
-            
-            // Se for dia de folga no futuro, marca e pula
             if (!isDayActive) {
                 schedule[day] = null;
-                // Empurra revisões pendentes para amanhã (não perde)
+                // Empurra revisões para o próximo dia útil
                 if (pendingReviews[day]) {
                     const nextDay = day + 1;
                     if (!pendingReviews[nextDay]) pendingReviews[nextDay] = [];
@@ -277,70 +281,52 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                 continue;
             }
 
-            // 1. Inserir Revisões Pendentes (Alta Prioridade)
+            // 1. Revisões (Alta Prioridade)
             if (pendingReviews[day]) {
                 pendingReviews[day].forEach(revSub => {
-                    // Verifica se a matéria ainda está selecionada no plano
                     if (selectedSubjectIds.has(revSub.id)) {
                         dailyItems.push({ subject: revSub, type: 'REVIEW' });
                     }
                 });
             }
 
-            // 2. Preencher Vagas com Teoria (Fila Inteligente)
+            // 2. Teoria (Fila Inteligente)
             let slotsForTheory = subjectsPerDay - dailyItems.length;
             if (slotsForTheory < 0) slotsForTheory = 0; 
 
             for (let i = 0; i < slotsForTheory; i++) {
                 if (smartQueue.length === 0) break;
 
-                let attempts = 0;
-                let candidateSubject: Subject | null = null;
+                // Seleciona próximo do ciclo
+                const candidateSubject = smartQueue[queueCursor];
+                queueCursor = (queueCursor + 1) % smartQueue.length;
 
-                // Tenta pegar o próximo da fila que não esteja já hoje
-                while (attempts < smartQueue.length) {
-                    const tempSubject = smartQueue[queueCursor];
-                    queueCursor = (queueCursor + 1) % smartQueue.length;
-                    
-                    const alreadyScheduled = dailyItems.some(item => item.subject.id === tempSubject.id);
-                    if (!alreadyScheduled) {
-                        candidateSubject = tempSubject;
-                        break;
-                    }
-                    attempts++;
+                // Verifica Intercalação no mesmo dia (evita repetir matéria se possível)
+                // Só repete se a fila for menor que os slots do dia (caso de poucas matérias)
+                const alreadyToday = dailyItems.some(item => item.subject.id === candidateSubject.id);
+                if (alreadyToday && smartQueue.length > subjectsPerDay) {
+                    // Pula esse e tenta o próximo
+                    i--; 
+                    continue;
                 }
 
-                if (candidateSubject) {
-                    // Pega o próximo tópico NÃO concluído
-                    const idx = subjectTopicCursors[candidateSubject.id];
-                    
-                    if (candidateSubject.topics && idx < candidateSubject.topics.length) {
-                        const topic = candidateSubject.topics[idx];
-                        
-                        // Avança o cursor virtualmente para a próxima vez que essa matéria aparecer
-                        subjectTopicCursors[candidateSubject.id] = idx + 1;
+                const idx = subjectTopicCursors[candidateSubject.id];
+                if (candidateSubject.topics && idx < candidateSubject.topics.length) {
+                    const topic = candidateSubject.topics[idx];
+                    subjectTopicCursors[candidateSubject.id] = idx + 1;
 
-                        dailyItems.push({ 
-                            subject: candidateSubject, 
-                            type: 'THEORY', 
-                            topic: topic 
+                    dailyItems.push({ subject: candidateSubject, type: 'THEORY', topic: topic });
+
+                    if (enableSpacedRepetition) {
+                        const intervals = getReviewIntervals(candidateSubject);
+                        intervals.forEach(interval => {
+                            if (day + interval <= daysCount + 30) addReview(day + interval, candidateSubject);
                         });
-
-                        // Agendar Revisões Futuras
-                        if (enableSpacedRepetition) {
-                            const intervals = getReviewIntervals(candidateSubject);
-                            intervals.forEach(interval => {
-                                if (day + interval <= daysCount + 30) addReview(day + interval, candidateSubject);
-                            });
-                        }
-                    } else {
-                        // Matéria finalizada teoricamente? Pula ou insere revisão extra
-                        // Por enquanto, não faz nada, loop vai tentar outra matéria
                     }
                 }
             }
 
-            // Distribuir Tempo Disponível
+            // Distribuir Tempo
             if (dailyItems.length > 0) {
                 const totalWeight = dailyItems.reduce((acc, item) => acc + (item.type === 'REVIEW' ? 1 : 2), 0);
                 dailyItems.forEach(item => {
@@ -363,6 +349,10 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
 
     const handlePriorityChange = (subject: Subject, priority: PriorityLevel) => {
         onUpdateSubject({ ...subject, priority });
+    };
+
+    const handleProficiencyChange = (subject: Subject, proficiency: ProficiencyLevel) => {
+        onUpdateSubject({ ...subject, proficiency });
     };
 
     // --- Renderização dos Itens ---
@@ -577,7 +567,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                 
                 <div className="flex-1 overflow-y-auto p-4 flex flex-col gap-6 custom-scrollbar">
                     
-                    {/* CONTROLE SRS - REVISÃO INTELIGENTE (NOVO) */}
+                    {/* CONTROLE SRS - REVISÃO INTELIGENTE */}
                     <div className="bg-amber-50 dark:bg-amber-900/10 p-4 rounded-lg border border-amber-100 dark:border-amber-900/30">
                         <div className="flex items-center justify-between mb-3">
                             <div className="flex items-center gap-2">
@@ -675,7 +665,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
 
                     <div className="h-px bg-border-light dark:bg-border-dark w-full"></div>
 
-                    {/* Controle de Dias da Semana (NOVO) */}
+                    {/* Controle de Dias da Semana */}
                     <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg border border-border-light dark:border-border-dark">
                          <div className="flex items-center gap-2 mb-3">
                             <div className="bg-indigo-100 dark:bg-indigo-900/30 p-1.5 rounded text-indigo-600">
@@ -755,7 +745,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
 
                     <div className="h-px bg-border-light dark:bg-border-dark w-full my-2"></div>
 
-                    {/* Lista de Prioridades */}
+                    {/* Lista de Configuração Individual (Proficiência e Prioridade) */}
                     <div className="flex flex-col gap-3">
                          <div className="flex items-center justify-between">
                             <label className="text-xs font-bold uppercase text-text-secondary-light dark:text-text-secondary-dark">Configuração Individual</label>
@@ -764,9 +754,14 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                             </span>
                          </div>
                          
-                         <div className="flex flex-col gap-3 max-h-[400px] overflow-y-auto pr-1 custom-scrollbar">
+                         <div className="flex flex-col gap-3 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
                              {activeSubjects.map(subject => {
                                  const isSelected = selectedSubjectIds.has(subject.id);
+                                 // Calcular peso visualmente para o usuário
+                                 const pWeight = subject.priority === 'HIGH' ? 3 : subject.priority === 'LOW' ? 1 : 2;
+                                 const kWeight = subject.proficiency === 'BEGINNER' ? 3 : subject.proficiency === 'ADVANCED' ? 1 : 2;
+                                 const totalWeight = pWeight * kWeight;
+                                 
                                  return (
                                      <div key={subject.id} className={`p-3 rounded-lg border transition-all duration-200 ${isSelected ? 'border-primary/30 bg-background-light dark:bg-background-dark/50' : 'border-border-light dark:border-border-dark bg-gray-50/50 dark:bg-white/5 opacity-70 grayscale-[0.3]'}`}>
                                          <div className="flex justify-between items-center mb-3">
@@ -784,12 +779,18 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                                                      {subject.name}
                                                  </span>
                                              </div>
+                                             {isSelected && (
+                                                 <div className="text-[9px] font-bold px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" title="Peso no Algoritmo">
+                                                     {totalWeight}x Freq
+                                                 </div>
+                                             )}
                                          </div>
                                          
                                          {isSelected && (
-                                            <div className="flex flex-col gap-2 animate-in fade-in duration-300">
+                                            <div className="flex flex-col gap-3 animate-in fade-in duration-300">
+                                                {/* Prioridade (Peso Edital) */}
                                                 <div className="flex flex-col gap-1">
-                                                    <span className="text-[10px] text-gray-400 uppercase font-semibold">Prioridade (Peso)</span>
+                                                    <span className="text-[9px] text-gray-400 uppercase font-semibold">Prioridade (Edital)</span>
                                                     <div className="flex bg-gray-200 dark:bg-gray-800 rounded p-0.5">
                                                         {(['LOW', 'MEDIUM', 'HIGH'] as PriorityLevel[]).map((level) => (
                                                             <button
@@ -807,6 +808,29 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                                                             </button>
                                                         ))}
                                                     </div>
+                                                </div>
+
+                                                {/* Proficiência (Inverso) */}
+                                                <div className="flex flex-col gap-1">
+                                                    <span className="text-[9px] text-gray-400 uppercase font-semibold">Nível de Domínio (Você)</span>
+                                                    <div className="flex bg-gray-200 dark:bg-gray-800 rounded p-0.5">
+                                                        {(['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as ProficiencyLevel[]).map((level) => (
+                                                            <button
+                                                                key={level}
+                                                                onClick={() => handleProficiencyChange(subject, level)}
+                                                                className={`flex-1 text-[9px] font-bold py-1 rounded transition-colors ${
+                                                                    (subject.proficiency || 'INTERMEDIATE') === level 
+                                                                        ? 'bg-indigo-500 text-white shadow-sm' 
+                                                                        : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                                                                }`}
+                                                            >
+                                                                {level === 'BEGINNER' ? 'Iniciante' : level === 'INTERMEDIATE' ? 'Médio' : 'Avançado'}
+                                                            </button>
+                                                        ))}
+                                                    </div>
+                                                    <p className="text-[8px] text-gray-400 text-center mt-0.5">
+                                                        *Iniciantes recebem mais tempo de estudo (3x)
+                                                    </p>
                                                 </div>
                                             </div>
                                          )}
