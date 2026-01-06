@@ -21,13 +21,201 @@ const AUTO_COLORS = [
     'blue', 'orange', 'green', 'purple', 'red', 'teal', 'pink', 'indigo', 'cyan', 'rose', 'violet', 'emerald', 'amber', 'fuchsia', 'sky', 'lime'
 ];
 
+// --- SECURITY UTILS ---
+// Ofuscação simples para evitar texto plano no LocalStorage (Legado)
+const encrypt = (text?: string) => {
+    if (!text) return '';
+    try {
+        return 'enc_' + btoa(text);
+    } catch (e) {
+        return text; // Fallback se falhar
+    }
+};
+
+const decrypt = (text?: string) => {
+    if (!text) return '';
+    if (text.startsWith('enc_')) {
+        try {
+            return atob(text.slice(4));
+        } catch (e) {
+            return '';
+        }
+    }
+    return text; // Suporte legado para chaves não encriptadas
+};
+
+// Base64 decode com suporte a UTF-8 para Magic Link
+const fromBase64 = (str: string) => {
+    try {
+        return decodeURIComponent(escape(atob(str)));
+    } catch(e) {
+        return atob(str);
+    }
+};
+
+// Função de Descriptografia AES-GCM (Nativa)
+const decryptVault = async (encryptedBase64: string, password: string) => {
+    try {
+        const encryptedBytes = Uint8Array.from(atob(encryptedBase64), c => c.charCodeAt(0));
+        
+        // Extrair partes (Salt: 16 bytes, IV: 12 bytes, Data: Resto)
+        const salt = encryptedBytes.slice(0, 16);
+        const iv = encryptedBytes.slice(16, 28);
+        const data = encryptedBytes.slice(28);
+
+        const enc = new TextEncoder();
+        const keyMaterial = await crypto.subtle.importKey("raw", enc.encode(password), { name: "PBKDF2" }, false, ["deriveKey"]);
+        const key = await crypto.subtle.deriveKey(
+            { name: "PBKDF2", salt, iterations: 100000, hash: "SHA-256" },
+            keyMaterial, { name: "AES-GCM", length: 256 }, false, ["decrypt"]
+        );
+
+        const decryptedBuffer = await crypto.subtle.decrypt({ name: "AES-GCM", iv }, key, data);
+        const dec = new TextDecoder();
+        return JSON.parse(dec.decode(decryptedBuffer));
+    } catch (e) {
+        throw new Error("Senha incorreta ou dados corrompidos.");
+    }
+};
+
 function App() {
   const [currentScreen, setCurrentScreen] = useState<Screen>(Screen.DASHBOARD);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   
-  // --- DATA MIGRATION & PERSISTENCE LAYER ---
-  // A lógica abaixo garante que dados antigos ganhem novos campos automaticamente (ex: cor, planId)
+  // Vault States
+  const [isVaultLocked, setIsVaultLocked] = useState(false);
+  const [vaultEncryptedData, setVaultEncryptedData] = useState<string | null>(null);
+  const [vaultPasswordInput, setVaultPasswordInput] = useState('');
+  const [vaultError, setVaultError] = useState('');
+  const [checkingVault, setCheckingVault] = useState(true);
+  
+  // --- User State Management ---
+  const [user, setUser] = useState<UserProfile>(() => {
+    if (typeof window !== 'undefined') {
+        try {
+            const savedUser = localStorage.getItem('studyflow_user');
+            if (savedUser) {
+                const parsed = JSON.parse(savedUser);
+                return {
+                    ...parsed,
+                    openAiApiKey: decrypt(parsed.openAiApiKey) || '',
+                    openAiModel: parsed.openAiModel || 'gpt-4o-mini',
+                    dailyAvailableTimeMinutes: parsed.dailyAvailableTimeMinutes || 240,
+                    githubToken: decrypt(parsed.githubToken) || '',
+                    backupGistId: parsed.backupGistId || ''
+                };
+            }
+        } catch (error) {
+            console.error("Erro ao carregar usuário do localStorage:", error);
+        }
+    }
+    return {
+        name: 'Alex Lima',
+        email: 'alex.lima@studyflow.ai',
+        avatarUrl: null,
+        openAiApiKey: '',
+        openAiModel: 'gpt-4o-mini',
+        dailyAvailableTimeMinutes: 240,
+        githubToken: '',
+        backupGistId: ''
+    };
+  });
 
+  // --- VAULT DETECTION LOGIC (HYBRID: LOCAL + REMOTE) ---
+  useEffect(() => {
+      const checkVault = async () => {
+          try {
+              // 1. Tenta LocalStorage (Mais rápido)
+              const localVault = localStorage.getItem('studyflow_secure_vault');
+              if (localVault) {
+                  console.log("Cofre encontrado no LocalStorage.");
+                  setVaultEncryptedData(localVault);
+                  setIsVaultLocked(true); 
+                  setCheckingVault(false);
+                  return;
+              }
+
+              // 2. Se não tem local, tenta buscar vault.json remoto (Persistência Cloud)
+              // Adiciona timestamp para evitar cache do browser
+              const response = await fetch(`./vault.json?t=${Date.now()}`);
+              if (response.ok) {
+                  const json = await response.json();
+                  if (json.data) {
+                      console.log("Cofre remoto (vault.json) detectado.");
+                      setVaultEncryptedData(json.data);
+                      // Salvamos localmente também para agilizar o próximo load
+                      localStorage.setItem('studyflow_secure_vault', json.data);
+                      setIsVaultLocked(true);
+                  }
+              }
+          } catch (e) {
+              console.log("Nenhum cofre detectado.");
+          } finally {
+              setCheckingVault(false);
+          }
+      };
+      
+      checkVault();
+  }, []);
+
+  const handleUnlockVault = async (e: React.FormEvent) => {
+      e.preventDefault();
+      if (!vaultEncryptedData) return;
+      
+      setVaultError('');
+      try {
+          const decryptedData = await decryptVault(vaultEncryptedData, vaultPasswordInput);
+          
+          setUser(prev => ({
+              ...prev,
+              openAiApiKey: decryptedData.openAiApiKey || prev.openAiApiKey,
+              githubToken: decryptedData.githubToken || prev.githubToken,
+              backupGistId: decryptedData.backupGistId || prev.backupGistId
+          }));
+          
+          setIsVaultLocked(false);
+          setVaultPasswordInput('');
+          
+          // Opcional: Feedback visual de sucesso
+      } catch (err) {
+          setVaultError("Senha incorreta.");
+      }
+  };
+
+  // --- MAGIC LINK LISTENER (Sync) ---
+  useEffect(() => {
+      const params = new URLSearchParams(window.location.search);
+      const syncCode = params.get('sync');
+
+      if (syncCode) {
+          try {
+              const decoded = fromBase64(syncCode);
+              const data = JSON.parse(decoded);
+
+              if (data.k || data.g) {
+                  if (window.confirm("Link de Sincronização detectado! Deseja importar as chaves contidas neste link?")) {
+                      setUser(prev => ({
+                          ...prev,
+                          openAiApiKey: data.k || prev.openAiApiKey,
+                          githubToken: data.g || prev.githubToken,
+                          backupGistId: data.b || prev.backupGistId
+                      }));
+                      
+                      const newUrl = window.location.pathname;
+                      window.history.replaceState({}, document.title, newUrl);
+                      
+                      alert("Chaves importadas com sucesso! Seus dados agora estão configurados.");
+                      setIsProfileOpen(true);
+                  }
+              }
+          } catch (e) {
+              console.error("Erro ao processar Link Mágico", e);
+              alert("O link de sincronização parece estar corrompido ou inválido.");
+          }
+      }
+  }, []);
+
+  // --- DATA MIGRATION & PERSISTENCE LAYER ---
   // 1. Plan Management State (Robust Load)
   const [plans, setPlans] = useState<StudyPlan[]>(() => {
       if (typeof window !== 'undefined') {
@@ -35,12 +223,11 @@ function App() {
           if (saved) {
               try {
                   const parsed = JSON.parse(saved);
-                  // Migração Defensiva: Garante que todo plano tenha cor e data válida
                   return parsed.map((p: any) => ({
                       id: p.id,
                       name: p.name,
-                      description: p.description || '', // Novo campo default
-                      color: p.color || 'blue',         // Novo campo default
+                      description: p.description || '', 
+                      color: p.color || 'blue',         
                       createdAt: p.createdAt ? new Date(p.createdAt) : new Date()
                   }));
               } catch (e) { console.error("Erro ao carregar planos", e); }
@@ -63,18 +250,13 @@ function App() {
           if (saved) {
               try {
                   const parsed = JSON.parse(saved);
-                  // Revitalização Profunda
                   const migrated = parsed.map((s: any) => {
-                      // Se o dado for muito antigo e não tiver ID de plano, atribui ao default
                       const planId = s.planId || DEFAULT_PLAN_ID;
-                      
-                      // Revitalização de Logs (Critical Fix for Charts)
                       let logs: StudyLog[] = [];
                       if (s.logs && Array.isArray(s.logs)) {
                           logs = s.logs.map((log: any) => ({
                               ...log,
                               date: new Date(log.date),
-                              // Adiciona campos novos se faltarem
                               modality: log.modality || 'PDF' 
                           }));
                       }
@@ -82,7 +264,7 @@ function App() {
                       return {
                           ...s,
                           planId: planId,
-                          color: s.color || 'blue', // Default se não existir
+                          color: s.color || 'blue',
                           priority: s.priority || 'MEDIUM',
                           proficiency: s.proficiency || 'INTERMEDIATE',
                           topics: s.topics || [],
@@ -99,7 +281,6 @@ function App() {
       return INITIAL_SUBJECTS;
   });
 
-  // Derived State: Filter subjects by current plan
   const currentPlanSubjects = subjects.filter(s => s.planId === currentPlanId);
 
   // 3. State for Error Logs
@@ -112,7 +293,6 @@ function App() {
                  return parsed.map((log: any) => ({
                      ...log,
                      createdAt: new Date(log.createdAt),
-                     // Migração caso adicionemos novos campos ao log de erro
                      reviewCount: log.reviewCount || 0
                  }));
              } catch (e) { console.error("Erro ao carregar erros", e); }
@@ -136,7 +316,7 @@ function App() {
                  return parsed.map((exam: any) => ({
                      ...exam,
                      date: new Date(exam.date),
-                     planId: exam.planId || 'current' // Retrocompatibilidade
+                     planId: exam.planId || 'current' 
                  }));
              } catch (e) { console.error("Erro ao carregar simulados", e); }
           }
@@ -156,7 +336,7 @@ function App() {
                  return parsed.map((note: any) => ({
                      ...note,
                      createdAt: new Date(note.createdAt),
-                     tags: note.tags || [] // Default
+                     tags: note.tags || []
                  }));
              } catch (e) { console.error("Error loading notes", e); }
           }
@@ -202,6 +382,20 @@ function App() {
       localStorage.setItem('studyflow_importer', JSON.stringify(stateToSave));
   }, [importerState]);
 
+  // Persistence with Encryption for sensitive keys (USER)
+  useEffect(() => {
+    // Se o cofre estiver ativo (local ou remoto), NÃO salvamos as chaves em texto plano
+    // A presença da variável 'studyflow_secure_vault' indica que o modo cofre está ligado
+    const isVaultActive = !!localStorage.getItem('studyflow_secure_vault');
+    
+    const secureUser = {
+        ...user,
+        openAiApiKey: isVaultActive ? '' : encrypt(user.openAiApiKey),
+        githubToken: isVaultActive ? '' : encrypt(user.githubToken)
+    };
+    localStorage.setItem('studyflow_user', JSON.stringify(secureUser));
+  }, [user]);
+
   // --- Handlers for Plans ---
   const handleAddPlan = (name: string) => {
       const newPlan: StudyPlan = {
@@ -212,7 +406,7 @@ function App() {
       };
       setPlans(prev => [...prev, newPlan]);
       setCurrentPlanId(newPlan.id);
-      setCurrentScreen(Screen.SUBJECTS); // Leva para tela de disciplinas para começar a popular
+      setCurrentScreen(Screen.SUBJECTS); 
   };
 
   const handleUpdatePlan = (updatedPlan: StudyPlan) => {
@@ -225,11 +419,8 @@ function App() {
           return;
       }
       if (window.confirm("Tem certeza? Isso apagará todas as disciplinas e histórico deste plano.")) {
-          // Remove disciplinas do plano
           setSubjects(prev => prev.filter(s => s.planId !== planId));
-          // Remove o plano
           setPlans(prev => prev.filter(p => p.id !== planId));
-          // Se apagou o atual, muda para o primeiro disponível
           if (currentPlanId === planId) {
               const nextPlan = plans.find(p => p.id !== planId) || plans[0];
               setCurrentPlanId(nextPlan.id);
@@ -250,7 +441,6 @@ function App() {
 
   // --- Handlers for Simulated Exams ---
   const handleAddSimulatedExam = (exam: SimulatedExam) => {
-      // Garante que o exame tenha o ID do plano atual
       const examWithPlan = { ...exam, planId: currentPlanId };
       setSimulatedExams(prev => [examWithPlan, ...prev]);
   };
@@ -271,7 +461,6 @@ function App() {
           createdAt: new Date()
       };
       setSavedNotes(prev => [newNote, ...prev]);
-      // Opcional: Mostrar um toast de sucesso
   };
 
   const handleDeleteSavedNote = (id: string) => {
@@ -280,19 +469,13 @@ function App() {
       }
   };
 
-  // --- Handlers for Subjects (Wrapped to use currentPlanId) ---
-
+  // --- Handlers for Subjects ---
   const handleImportSubjects = (newSubjects: Subject[]) => {
-      // Injeta o ID do plano atual nas disciplinas importadas
       const subjectsWithPlan = newSubjects.map(s => ({
           ...s,
           planId: currentPlanId
       }));
-
-      console.log("Importando disciplinas para o plano:", currentPlanId, subjectsWithPlan);
       setSubjects(prevSubjects => [...prevSubjects, ...subjectsWithPlan]);
-      
-      // Limpar estado do importador após sucesso
       const resetImporter: ImporterState = {
           step: 'UPLOAD',
           fileName: '',
@@ -303,7 +486,6 @@ function App() {
       };
       setImporterState(resetImporter);
       localStorage.setItem('studyflow_importer', JSON.stringify({ ...resetImporter, selectedSubjects: [] }));
-
       setCurrentScreen(Screen.SUBJECTS);
   };
 
@@ -322,15 +504,13 @@ function App() {
 
   const handleAddManualSubject = (name: string) => {
       if (name && name.trim()) {
-          // Lógica de Cor Automática: Pega a próxima cor da lista baseado no total de disciplinas
           const nextColor = AUTO_COLORS[subjects.length % AUTO_COLORS.length];
-
           const newSubject: Subject = {
               id: `manual-${Date.now()}`,
-              planId: currentPlanId, // Vínculo Importante
+              planId: currentPlanId,
               name: name,
               active: true,
-              color: nextColor, // Cor automática
+              color: nextColor,
               topics: [],
               priority: 'MEDIUM',
               proficiency: 'INTERMEDIATE',
@@ -339,8 +519,6 @@ function App() {
           setSubjects(prev => [...prev, newSubject]);
       }
   };
-
-  // --- Topic Management Handlers ---
 
   const handleAddTopic = (subjectId: string, topicName: string) => {
       const newTopic: Topic = {
@@ -371,7 +549,6 @@ function App() {
       }));
   };
 
-  // Nova função para suportar Drag and Drop (Move de Index A para Index B)
   const handleMoveTopic = (subjectId: string, fromIndex: number, toIndex: number) => {
       setSubjects(prev => prev.map(s => {
           if (s.id !== subjectId) return s;
@@ -406,47 +583,8 @@ function App() {
           const currentLogs = sub.logs || [];
           return { ...sub, topics: updatedTopics, logs: [newLog, ...currentLogs] };
       }));
-      // Removida a limpeza automática do player state aqui para não perder a fila do dia.
   };
 
-  // User State Management
-  const [user, setUser] = useState<UserProfile>(() => {
-    if (typeof window !== 'undefined') {
-        try {
-            const savedUser = localStorage.getItem('studyflow_user');
-            if (savedUser) {
-                const parsed = JSON.parse(savedUser);
-                // Migração de Usuário
-                return {
-                    ...parsed,
-                    openAiApiKey: parsed.openAiApiKey || '',
-                    openAiModel: parsed.openAiModel || 'gpt-4o-mini',
-                    dailyAvailableTimeMinutes: parsed.dailyAvailableTimeMinutes || 240,
-                    githubToken: parsed.githubToken || '',
-                    backupGistId: parsed.backupGistId || ''
-                };
-            }
-        } catch (error) {
-            console.error("Erro ao carregar usuário do localStorage:", error);
-        }
-    }
-    return {
-        name: 'Alex Lima',
-        email: 'alex.lima@studyflow.ai',
-        avatarUrl: null,
-        openAiApiKey: '',
-        openAiModel: 'gpt-4o-mini',
-        dailyAvailableTimeMinutes: 240,
-        githubToken: '',
-        backupGistId: ''
-    };
-  });
-
-  useEffect(() => {
-    localStorage.setItem('studyflow_user', JSON.stringify(user));
-  }, [user]);
-
-  // Theme State
   const [theme, setTheme] = useState(() => {
     if (typeof window !== 'undefined' && window.localStorage) {
         const stored = localStorage.getItem('theme');
@@ -467,101 +605,72 @@ function App() {
     setTheme((prev) => (prev === 'light' ? 'dark' : 'light'));
   };
 
-  // Render Logic
-  // IMPORTANTE: Passar `currentPlanSubjects` ao invés de `subjects`
   const renderScreen = () => {
+    if (isVaultLocked) {
+        return (
+            <div className="flex flex-col items-center justify-center h-full p-8 animate-in fade-in">
+                <div className="bg-white dark:bg-card-dark p-8 rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 w-full max-w-md text-center">
+                    <div className="size-16 bg-amber-100 dark:bg-amber-900/30 rounded-full flex items-center justify-center mx-auto mb-6">
+                        <span className="material-symbols-outlined text-3xl text-amber-600 dark:text-amber-400">lock</span>
+                    </div>
+                    <h2 className="text-2xl font-black text-gray-900 dark:text-white mb-2">Chaves Bloqueadas</h2>
+                    <p className="text-gray-500 dark:text-gray-400 mb-6 text-sm">
+                        Detectamos um cofre digital (local ou remoto). Digite sua senha para liberar o uso das APIs.
+                    </p>
+                    <form onSubmit={handleUnlockVault} className="flex flex-col gap-4">
+                        <input 
+                            autoFocus
+                            type="password" 
+                            placeholder="Senha do Cofre"
+                            value={vaultPasswordInput}
+                            onChange={(e) => setVaultPasswordInput(e.target.value)}
+                            className="w-full px-4 py-3 rounded-lg border border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-black/20 text-gray-900 dark:text-white focus:ring-2 focus:ring-amber-500/50 outline-none transition-all"
+                        />
+                        {vaultError && <p className="text-red-500 text-xs font-bold">{vaultError}</p>}
+                        <button 
+                            type="submit"
+                            className="w-full py-3 bg-amber-500 hover:bg-amber-600 text-white rounded-lg font-bold shadow-lg shadow-amber-500/20 transition-all active:scale-95"
+                        >
+                            Desbloquear Acesso
+                        </button>
+                    </form>
+                </div>
+            </div>
+        );
+    }
+
     switch (currentScreen) {
       case Screen.DASHBOARD:
-        return <Dashboard 
-                  onNavigate={setCurrentScreen} 
-                  user={user} 
-                  subjects={currentPlanSubjects} 
-                  errorLogs={currentPlanErrorLogs} // Passando os logs de erro
-               />;
+        return <Dashboard onNavigate={setCurrentScreen} user={user} subjects={currentPlanSubjects} errorLogs={currentPlanErrorLogs} />;
       case Screen.STUDY_PLAYER:
-        return (
-          <StudyPlayer 
-            apiKey={user.openAiApiKey} 
-            model={user.openAiModel} 
-            subjects={currentPlanSubjects} 
-            dailyAvailableTime={user.dailyAvailableTimeMinutes || 240}
-            onSessionComplete={handleSessionComplete}
-            onNavigate={setCurrentScreen}
-            onSaveNote={handleAddSavedNote} // Passando a função de salvar
-          />
-        );
+        return <StudyPlayer apiKey={user.openAiApiKey} model={user.openAiModel} subjects={currentPlanSubjects} dailyAvailableTime={user.dailyAvailableTimeMinutes || 240} onSessionComplete={handleSessionComplete} onNavigate={setCurrentScreen} onSaveNote={handleAddSavedNote} />;
       case Screen.SUBJECTS:
-        return (
-            <SubjectManager 
-                subjects={currentPlanSubjects} 
-                onDeleteSubject={handleDeleteSubject}
-                onAddSubject={handleAddManualSubject}
-                onToggleStatus={handleToggleSubjectStatus}
-                onAddTopic={handleAddTopic}
-                onRemoveTopic={handleRemoveTopic}
-                onMoveTopic={handleMoveTopic} 
-                onUpdateSubject={handleUpdateSubject} 
-                onEditTopic={handleEditTopic} // Adicionado: Passando a função de edição
-                apiKey={user.openAiApiKey}
-                model={user.openAiModel}
-            />
-        );
+        return <SubjectManager subjects={currentPlanSubjects} onDeleteSubject={handleDeleteSubject} onAddSubject={handleAddManualSubject} onToggleStatus={handleToggleSubjectStatus} onAddTopic={handleAddTopic} onRemoveTopic={handleRemoveTopic} onMoveTopic={handleMoveTopic} onUpdateSubject={handleUpdateSubject} onEditTopic={handleEditTopic} apiKey={user.openAiApiKey} model={user.openAiModel} />;
       case Screen.IMPORTER:
-        return (
-            <Importer 
-                apiKey={user.openAiApiKey} 
-                model={user.openAiModel} 
-                onImport={handleImportSubjects}
-                state={importerState}
-                setState={setImporterState}
-            />
-        );
+        return <Importer apiKey={user.openAiApiKey} model={user.openAiModel} onImport={handleImportSubjects} state={importerState} setState={setImporterState} />;
       case Screen.DYNAMIC_SCHEDULE:
-        return (
-            <DynamicSchedule 
-                subjects={currentPlanSubjects} 
-                onUpdateSubject={handleUpdateSubject} 
-                user={user}
-                onUpdateUser={setUser}
-                errorLogs={currentPlanErrorLogs} // ADICIONADO: Logs de erro para algoritmo SRS
-            />
-        );
+        return <DynamicSchedule subjects={currentPlanSubjects} onUpdateSubject={handleUpdateSubject} user={user} onUpdateUser={setUser} errorLogs={currentPlanErrorLogs} />;
       case Screen.ERROR_NOTEBOOK:
-        return (
-            <ErrorNotebook 
-                subjects={currentPlanSubjects}
-                logs={currentPlanErrorLogs}
-                onAddLog={handleAddErrorLog}
-                onDeleteLog={handleDeleteErrorLog}
-            />
-        );
+        return <ErrorNotebook subjects={currentPlanSubjects} logs={currentPlanErrorLogs} onAddLog={handleAddErrorLog} onDeleteLog={handleDeleteErrorLog} />;
       case Screen.SIMULATED_EXAMS:
-        return (
-            <SimulatedExams 
-                exams={currentPlanExams}
-                onAddExam={handleAddSimulatedExam}
-                onDeleteExam={handleDeleteSimulatedExam}
-            />
-        );
+        return <SimulatedExams exams={currentPlanExams} onAddExam={handleAddSimulatedExam} onDeleteExam={handleDeleteSimulatedExam} />;
       case Screen.SAVED_NOTES:
-        return (
-            <SavedNotes 
-                notes={savedNotes}
-                onDeleteNote={handleDeleteSavedNote}
-            />
-        );
+        return <SavedNotes notes={savedNotes} onDeleteNote={handleDeleteSavedNote} />;
       default:
         return <Dashboard onNavigate={setCurrentScreen} user={user} subjects={currentPlanSubjects} errorLogs={currentPlanErrorLogs} />;
     }
   };
 
-  const getInitials = (fullName: string) => {
-    const names = fullName.split(' ');
-    if (names.length >= 2) return `${names[0][0]}${names[1][0]}`.toUpperCase();
-    return fullName.slice(0, 2).toUpperCase();
-  };
-
   const activePlanColor = plans.find(p => p.id === currentPlanId)?.color || 'blue';
+
+  // Prevent flash of content if verifying vault
+  if (checkingVault) {
+      return (
+          <div className="h-screen w-full flex items-center justify-center bg-background-light dark:bg-background-dark">
+              <span className="material-symbols-outlined text-4xl text-primary animate-spin">sync</span>
+          </div>
+      );
+  }
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background-light dark:bg-background-dark text-text-primary-light dark:text-text-primary-dark">
@@ -575,8 +684,8 @@ function App() {
         onAddPlan={handleAddPlan}
         onDeletePlan={handleDeletePlan}
         onUpdateUser={setUser}
-        onUpdatePlan={handleUpdatePlan} // Nova Prop
-        onOpenProfile={() => setIsProfileOpen(true)} // Nova Prop para abrir o modal via Sidebar
+        onUpdatePlan={handleUpdatePlan} 
+        onOpenProfile={() => setIsProfileOpen(true)} 
       />
       
       <main className="flex-1 flex flex-col h-full overflow-hidden relative transition-colors duration-200">
@@ -588,7 +697,6 @@ function App() {
                     </div>
                     <h1 className="font-bold text-lg text-text-primary-light dark:text-text-primary-dark">StudyFlow AI</h1>
                  </div>
-                 {/* Exibir nome do plano atual no header também para contexto mobile/desktop */}
                  <div className={`hidden md:flex items-center gap-2 px-3 py-1 bg-${activePlanColor}-50 dark:bg-${activePlanColor}-900/10 rounded-full border border-${activePlanColor}-100 dark:border-${activePlanColor}-900/30`}>
                      <span className={`material-symbols-outlined text-sm text-${activePlanColor}-500`}>folder_open</span>
                      <span className={`text-xs font-bold text-${activePlanColor}-700 dark:text-${activePlanColor}-300`}>
@@ -607,7 +715,6 @@ function App() {
                         {theme === 'dark' ? 'light_mode' : 'dark_mode'}
                     </span>
                 </button>
-                {/* Botão de Perfil Removido daqui conforme solicitado - agora acessível apenas pela Sidebar */}
             </div>
         </header>
 
