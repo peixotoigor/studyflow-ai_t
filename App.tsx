@@ -73,8 +73,8 @@ function App() {
   const [vaultError, setVaultError] = useState('');
   const [checkingVault, setCheckingVault] = useState(true);
   
-  // Auto-Save State
-  const [syncState, setSyncState] = useState<'IDLE' | 'SAVING' | 'SAVED' | 'ERROR'>('IDLE');
+  // Auto-Save State (SYNCING = Baixando, SAVING = Subindo)
+  const [syncState, setSyncState] = useState<'IDLE' | 'SAVING' | 'SAVED' | 'ERROR' | 'SYNCING'>('IDLE');
   
   // --- User State Management ---
   const [user, setUser] = useState<UserProfile>(() => {
@@ -250,7 +250,8 @@ function App() {
 
       if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
 
-      setSyncState('SAVING'); // Visual indication waiting...
+      // Não mostra "Salvando" se estiver "Baixando" (Syncing)
+      if (syncState !== 'SYNCING') setSyncState('SAVING'); 
 
       autoSaveTimeoutRef.current = setTimeout(async () => {
           await performAutoSave();
@@ -263,7 +264,9 @@ function App() {
 
   const performAutoSave = async () => {
       try {
+          if (syncState === 'SYNCING') return; // Evita salvar enquanto baixa
           setSyncState('SAVING');
+          
           const backupData = {
               version: 2,
               timestamp: new Date().toISOString(),
@@ -306,8 +309,10 @@ function App() {
       }
   };
 
-  const handleRestoreData = async (gistId: string, token: string) => {
+  const handleRestoreData = async (gistId: string, token: string, silent = false) => {
         try {
+            if (silent) setSyncState('SYNCING');
+
             const response = await fetch(`https://api.github.com/gists/${gistId}`, {
                 headers: { 'Authorization': `token ${token}` }
             });
@@ -338,15 +343,20 @@ function App() {
                 setUser(prev => ({
                     ...prev,
                     ...content.user,
-                    openAiApiKey: prev.openAiApiKey,
+                    openAiApiKey: prev.openAiApiKey, // Mantém chaves locais seguras
                     githubToken: prev.githubToken,
                     backupGistId: prev.backupGistId
                 }));
             }
             
-            alert("Dados e perfil restaurados com sucesso!");
+            if (!silent) alert("Dados e perfil restaurados com sucesso!");
+            setSyncState('SAVED');
+            setTimeout(() => setSyncState('IDLE'), 3000);
+
         } catch (e: any) {
-            alert("Erro ao restaurar dados: " + e.message);
+            console.error("Restore error:", e);
+            if (!silent) alert("Erro ao restaurar dados: " + e.message);
+            setSyncState('ERROR');
         }
   };
 
@@ -372,16 +382,15 @@ function App() {
           
           setIsVaultLocked(false);
 
-          // Verifica se precisa restaurar (Sessão Vazia + Backup Disponível)
-          const hasBackup = decryptedData.backupGistId && decryptedData.githubToken;
+          // LÓGICA DE SYNC AUTOMÁTICO:
+          // Se tiver backup configurado E for uma sessão "nova" (sem dados locais), puxa da nuvem automaticamente.
+          const hasBackupCreds = decryptedData.backupGistId && decryptedData.githubToken;
           const isFreshSession = subjects.length === 0;
 
-          if (hasBackup && isFreshSession) {
-              setTimeout(async () => {
-                  if (window.confirm("Cofre desbloqueado! Deseja BAIXAR seus dados da nuvem agora?")) {
-                      await handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken);
-                  }
-              }, 500);
+          if (hasBackupCreds && isFreshSession) {
+              console.log("Sessão nova detectada. Iniciando download automático...");
+              // Chama o restore em modo silencioso
+              handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken, true);
           }
           
           setVaultPasswordInput('');
@@ -548,12 +557,18 @@ function App() {
                  </div>
                  {/* Auto-Save Indicator */}
                  {user.backupGistId && (
-                     <div className={`hidden md:flex items-center gap-2 text-[10px] font-bold px-2 py-1 rounded transition-all ${syncState === 'SAVING' ? 'bg-yellow-50 text-yellow-600' : syncState === 'SAVED' ? 'bg-green-50 text-green-600' : syncState === 'ERROR' ? 'bg-red-50 text-red-600' : 'text-gray-400 opacity-50'}`}>
+                     <div className={`hidden md:flex items-center gap-2 text-[10px] font-bold px-2 py-1 rounded transition-all ${syncState === 'SAVING' ? 'bg-yellow-50 text-yellow-600' : syncState === 'SAVED' ? 'bg-green-50 text-green-600' : syncState === 'ERROR' ? 'bg-red-50 text-red-600' : syncState === 'SYNCING' ? 'bg-blue-50 text-blue-600' : 'text-gray-400 opacity-50'}`}>
                          {syncState === 'SAVING' && <span className="material-symbols-outlined text-[12px] animate-spin">sync</span>}
+                         {syncState === 'SYNCING' && <span className="material-symbols-outlined text-[12px] animate-spin">cloud_download</span>}
                          {syncState === 'SAVED' && <span className="material-symbols-outlined text-[12px]">cloud_done</span>}
                          {syncState === 'ERROR' && <span className="material-symbols-outlined text-[12px]">cloud_off</span>}
                          {syncState === 'IDLE' && <span className="material-symbols-outlined text-[12px]">cloud_queue</span>}
-                         <span className="uppercase">{syncState === 'SAVING' ? 'Salvando...' : syncState === 'SAVED' ? 'Sincronizado' : syncState === 'ERROR' ? 'Erro Sync' : 'Nuvem Ativa'}</span>
+                         <span className="uppercase">
+                             {syncState === 'SAVING' ? 'Salvando...' : 
+                              syncState === 'SYNCING' ? 'Baixando...' : 
+                              syncState === 'SAVED' ? 'Sincronizado' : 
+                              syncState === 'ERROR' ? 'Erro Sync' : 'Nuvem Ativa'}
+                         </span>
                      </div>
                  )}
             </div>
