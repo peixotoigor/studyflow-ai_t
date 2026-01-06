@@ -65,7 +65,6 @@ const decrypt = (text?: string) => {
 // Função de Descriptografia AES-GCM (Nativa)
 const decryptVault = async (encryptedBase64: string, password: string) => {
     if (!window.crypto || !window.crypto.subtle) {
-        // Fallback gracioso ou erro explícito
         throw new Error("Criptografia indisponível neste navegador/contexto.");
     }
     try {
@@ -213,24 +212,17 @@ function App() {
       const checkVault = async () => {
           setCheckingVault(true);
           try {
-              // 1. Tenta carregar localmente primeiro
               let encryptedData: string | null = safeGet('studyflow_secure_vault');
 
-              // 2. Se não achou local, tenta remoto (CRÍTICO PARA NOVOS DISPOSITIVOS)
+              // Verifica se tem vault remoto (para deploy estático)
               if (!encryptedData) {
-                  const paths = [
-                      './vault.json',
-                      'vault.json',
-                      `${window.location.pathname.replace(/\/$/, '')}/vault.json`
-                  ];
-
+                  const paths = ['./vault.json', 'vault.json'];
                   for (const path of paths) {
                       try {
                           const response = await fetch(`${path}?t=${Date.now()}`);
                           if (response.ok) {
                               const json = await response.json();
                               if (json.data) {
-                                  console.log("Cofre remoto encontrado em:", path);
                                   encryptedData = json.data;
                                   safeSet('studyflow_secure_vault', json.data);
                                   break; 
@@ -240,11 +232,8 @@ function App() {
                   }
               }
 
-              // 3. Processa o resultado
               if (encryptedData) {
                   setVaultEncryptedData(encryptedData);
-                  
-                  // TENTA AUTO-UNLOCK VIA SESSION STORAGE (Se recarregou a página)
                   try {
                       const sessionPass = sessionStorage.getItem('studyflow_session_pass');
                       if (sessionPass) {
@@ -256,23 +245,18 @@ function App() {
                               backupGistId: decryptedData.backupGistId || prev.backupGistId
                           }));
                           setIsVaultLocked(false);
-                          // Se já desbloqueou via sessão, tenta sync discreto
-                          if (decryptedData.backupGistId && subjects.length === 0) {
-                              handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken, true, decryptedData);
-                          }
                       } else {
-                          setIsVaultLocked(true); // Bloqueia se não tiver senha na sessão
+                          setIsVaultLocked(true);
                       }
                   } catch (e) {
-                      setIsVaultLocked(true); // Senha de sessão inválida
+                      setIsVaultLocked(true);
                       sessionStorage.removeItem('studyflow_session_pass');
                   }
               } else {
-                  setIsVaultLocked(false); // Nenhum cofre = modo livre
+                  setIsVaultLocked(false);
               }
           } catch (e) {
-              console.error("Erro fatal na verificação do cofre:", e);
-              setIsVaultLocked(false); // Falha segura
+              setIsVaultLocked(false);
           } finally {
               setCheckingVault(false);
           }
@@ -398,16 +382,10 @@ function App() {
             if (content.user) {
                 setUser(prev => {
                     const mergedUser = { ...prev, ...content.user };
-                    // Re-apply keys from vault (forcedKeys) to ensure they are not overwritten by empty backup
                     if (forcedKeys) {
                         mergedUser.openAiApiKey = forcedKeys.openAiApiKey || prev.openAiApiKey;
                         mergedUser.githubToken = forcedKeys.githubToken || prev.githubToken;
                         mergedUser.backupGistId = forcedKeys.backupGistId || prev.backupGistId;
-                    } else {
-                        // Maintain current keys if not provided in backup
-                        mergedUser.openAiApiKey = prev.openAiApiKey;
-                        mergedUser.githubToken = prev.githubToken;
-                        mergedUser.backupGistId = prev.backupGistId;
                     }
                     return mergedUser;
                 });
@@ -428,7 +406,7 @@ function App() {
   const handleManualGithubSync = async (token: string) => {
       if (!token) return;
       try {
-          // 1. Buscar Gists
+          // 1. Buscar Gists do Usuário
           const response = await fetch('https://api.github.com/gists', {
               headers: { 'Authorization': `token ${token}` }
           });
@@ -436,16 +414,36 @@ function App() {
           if (!response.ok) throw new Error("Token inválido ou erro de conexão.");
           
           const gists = await response.json();
-          // 2. Encontrar o Gist correto
+          
+          // 2. Procurar COFRE DE SEGURANÇA (Vault) nos Gists
+          const vaultGist = gists.find((g: any) => 
+              Object.keys(g.files).some(f => f.includes('studyflow_vault.json'))
+          );
+
+          let vaultFound = false;
+          if (vaultGist) {
+              const vaultUrl = vaultGist.files['studyflow_vault.json'].raw_url;
+              const vRes = await fetch(vaultUrl, { headers: { 'Authorization': `token ${token}` }});
+              const vData = await vRes.json();
+              if (vData.data) {
+                  // Instala o cofre localmente e BLOQUEIA
+                  safeSet('studyflow_secure_vault', vData.data);
+                  setVaultEncryptedData(vData.data);
+                  setIsVaultLocked(true); // Força o bloqueio para pedir senha
+                  vaultFound = true;
+                  alert("🔐 Cofre de Segurança encontrado e baixado! O acesso será bloqueado para você digitar sua senha.");
+              }
+          }
+
+          // 3. Encontrar e Restaurar Dados (Backup)
           const backupGist = gists.find((g: any) => 
               Object.keys(g.files).some(f => f.includes('studyflow_backup'))
           );
 
           if (backupGist) {
-              // 3. Restaurar
               await handleRestoreData(backupGist.id, token, false, { githubToken: token, backupGistId: backupGist.id });
           } else {
-              alert("Nenhum backup encontrado nesta conta GitHub.");
+              if (!vaultFound) alert("Nenhum backup encontrado nesta conta GitHub.");
           }
       } catch (e: any) {
           alert(`Erro: ${e.message}`);
@@ -475,15 +473,8 @@ function App() {
           
           setIsVaultLocked(false);
 
-          // AUTO-SYNC ON UNLOCK: Fundamental para novos dispositivos
-          const hasBackupCreds = decryptedData.backupGistId && decryptedData.githubToken;
-          
-          // Sempre tenta sincronizar se tiver credenciais (não só fresh session), 
-          // pois em um novo dispositivo subjects.length será 0 inicialmente.
-          const isFreshSession = subjects.length === 0; 
-
-          if (hasBackupCreds) {
-              // Força o sync visualmente
+          // Sincronização automática após desbloqueio
+          if (decryptedData.backupGistId && subjects.length === 0) {
               setSyncState('SYNCING');
               await handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken, true, decryptedData);
           }
@@ -498,7 +489,13 @@ function App() {
       }
   };
 
-  // Persistence Effects (Use safeSet to avoid private mode crashes)
+  const handleLockVault = () => {
+      sessionStorage.removeItem('studyflow_session_pass');
+      setIsVaultLocked(true);
+      setVaultEncryptedData(safeGet('studyflow_secure_vault'));
+  };
+
+  // Persistence Effects
   useEffect(() => { safeSet('studyflow_subjects', JSON.stringify(subjects)); }, [subjects]);
   useEffect(() => { safeSet('studyflow_errors', JSON.stringify(errorLogs)); }, [errorLogs]);
   useEffect(() => { safeSet('studyflow_plans', JSON.stringify(plans)); }, [plans]);
@@ -520,6 +517,7 @@ function App() {
     safeSet('studyflow_user', JSON.stringify(secureUser));
   }, [user]);
 
+  // Handlers de dados...
   const handleAddPlan = (name: string) => {
       const newPlan: StudyPlan = { id: `plan-${Date.now()}`, name, color: 'blue', createdAt: new Date() };
       setPlans(prev => [...prev, newPlan]);
@@ -567,7 +565,6 @@ function App() {
   };
   const handleUpdateSubject = (us: Subject) => setSubjects(prev => prev.map(s => s.id === us.id ? us : s));
   
-  // Função para completar sessão (cria novo log)
   const handleSessionComplete = (sId: string, tId: string, d: number, q: number, c: number, finished: boolean) => {
       setSubjects(prev => prev.map(s => {
           if (s.id !== sId) return s;
@@ -576,12 +573,9 @@ function App() {
       }));
   };
 
-  // Funções para manipular Logs Existentes (Edição, Exclusão e Adição Manual)
-  // IMPORTANTE: Garantimos a criação de novas referências de array para disparar re-render
   const handleUpdateLog = (subjectId: string, logId: string, updatedLog: Partial<StudyLog>) => {
       setSubjects(prev => prev.map(s => {
           if (s.id !== subjectId) return s;
-          // Nova referência para logs
           const newLogs = s.logs ? s.logs.map(log => log.id === logId ? { ...log, ...updatedLog } : log) : [];
           return { ...s, logs: newLogs };
       }));
@@ -726,6 +720,16 @@ function App() {
                               syncState === 'ERROR' ? 'Erro Sync' : 'Nuvem Ativa'}
                          </span>
                      </div>
+                 )}
+                 {vaultEncryptedData && !isVaultLocked && (
+                     <button 
+                        onClick={handleLockVault}
+                        className="flex items-center gap-1 px-2 py-1 bg-amber-50 dark:bg-amber-900/20 text-amber-600 dark:text-amber-400 rounded hover:bg-amber-100 dark:hover:bg-amber-900/40 transition-colors ml-2 active:scale-95"
+                        title="Bloquear App Agora"
+                     >
+                         <span className="material-symbols-outlined text-sm">lock</span>
+                         <span className="text-[10px] font-bold uppercase hidden md:inline">Trancar</span>
+                     </button>
                  )}
             </div>
 

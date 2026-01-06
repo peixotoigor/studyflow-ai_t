@@ -71,7 +71,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
     const [isProcessingVault, setIsProcessingVault] = useState(false);
     
     // Cloud Vault State
-    const [repoName, setRepoName] = useState('');
     const [cloudStatus, setCloudStatus] = useState('');
 
     // Crop State
@@ -114,14 +113,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                 const savedDate = localStorage.getItem('studyflow_last_backup_date');
                 if (savedDate) setLastBackupDate(new Date(savedDate).toLocaleString());
             } catch(e) {}
-            
-            // Tentar inferir o nome do repositório se estiver rodando no GitHub Pages
-            if (window.location.hostname.includes('github.io')) {
-                const parts = window.location.pathname.split('/').filter(p => p);
-                const userPart = window.location.hostname.split('.')[0];
-                const repoPart = parts.length > 0 ? parts[0] : userPart + '.github.io'; // Fallback para user repo
-                setRepoName(`${userPart}/${repoPart}`);
-            }
         }
     }, [isOpen, user]);
 
@@ -175,7 +166,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                 ctx.scale(cropScale, cropScale);
                 ctx.translate(cropPos.x, cropPos.y);
                 ctx.drawImage(imgRef.current, -imgRef.current.naturalWidth / 2, -imgRef.current.naturalHeight / 2);
-                // OTIMIZAÇÃO: Reduz qualidade para 0.7 para garantir que payload caiba no Gist
                 setAvatarUrl(canvas.toDataURL('image/jpeg', 0.7));
                 setTempImage(null);
             }
@@ -203,7 +193,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
         };
         
         // --- AUTO UPDATE VAULT (SECURITY) ---
-        // Se o cofre estiver ativo, precisamos re-criptografar as NOVAS chaves com a senha da sessão.
         if (isVaultActive) {
             try {
                 const sessionPass = sessionStorage.getItem('studyflow_session_pass');
@@ -215,31 +204,17 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                     });
                     
                     const newVaultString = await generateVaultString(dataToEncrypt, sessionPass);
-                    
-                    try {
-                        localStorage.setItem('studyflow_secure_vault', newVaultString);
-                        console.log("Cofre local atualizado automaticamente com as novas chaves.");
-                        
-                        if (repoName && (githubTokenInput || apiKeyInput)) {
-                            alert("Chaves atualizadas localmente! \n\nIMPORTANTE: Para atualizar o 'vault.json' no seu GitHub, vá até a aba Segurança e clique em 'Salvar na Nuvem' novamente.");
-                        }
-                    } catch (e) {
-                        console.warn("Não foi possível atualizar o cofre local (Storage bloqueado).");
-                    }
-                } else {
-                    alert("Atenção: O cofre está ativo mas a senha da sessão expirou. Suas novas chaves NÃO foram protegidas no cofre. \n\nPor favor, vá na aba Segurança e recrie o cofre.");
+                    localStorage.setItem('studyflow_secure_vault', newVaultString);
                 }
-            } catch (e) {
-                // Ignore session storage errors
-            }
+            } catch (e) {}
         }
 
         onSave(updatedUser);
         onClose();
     };
 
-    // --- VAULT LOGIC (LOCAL & REMOTE) ---
-    const handleCreateVault = async (target: 'LOCAL' | 'CLOUD') => {
+    // --- VAULT LOGIC (LOCAL & GIST) ---
+    const handleCreateVault = async (target: 'LOCAL' | 'GIST') => {
         if (!vaultPassword || vaultPassword.length < 4) {
             alert("A senha deve ter pelo menos 4 caracteres.");
             return;
@@ -254,7 +229,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
         }
 
         setIsProcessingVault(true);
-        setCloudStatus(target === 'CLOUD' ? 'Conectando ao GitHub...' : '');
+        setCloudStatus(target === 'GIST' ? 'Conectando ao GitHub...' : '');
 
         try {
             const dataToEncrypt = JSON.stringify({
@@ -275,7 +250,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                     const sanitizedUser = { ...currentUser, openAiApiKey: '', githubToken: '' };
                     localStorage.setItem('studyflow_user', JSON.stringify(sanitizedUser));
                 } catch(e) {
-                    alert("Atenção: O armazenamento local está bloqueado. O cofre funcionará apenas nesta sessão se você não salvá-lo na nuvem.");
+                    alert("Atenção: O armazenamento local está bloqueado.");
                 }
                 
                 try { sessionStorage.setItem('studyflow_session_pass', vaultPassword); } catch(e){}
@@ -284,55 +259,42 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                 alert("Cofre Local criado! Suas chaves estão protegidas neste navegador.");
                 setVaultPassword('');
             } 
-            else if (target === 'CLOUD') {
+            else if (target === 'GIST') {
                 // Validação
                 if (!activeGithubToken) throw new Error("Token do GitHub necessário para salvar na nuvem.");
-                if (!repoName.includes('/')) throw new Error("Formato do repositório inválido. Use usuario/repo.");
 
-                // Prepara payload JSON
-                const fileContent = JSON.stringify({ data: encryptedString });
-                const base64Content = toBase64(fileContent); // GitHub API requer base64
+                // Envia para o GIST como 'studyflow_vault.json'
+                // Isso torna o cofre recuperável apenas pelo Token, sem precisar saber o nome do Repo
+                setCloudStatus('Salvando no Gist Seguro...');
+                
+                const files = {
+                    "studyflow_vault.json": { content: JSON.stringify({ data: encryptedString }) }
+                };
 
-                // Tenta pegar o SHA do arquivo existente (se houver) para update
-                setCloudStatus('Verificando arquivo existente...');
-                let sha = null;
-                try {
-                    const getRes = await fetch(`https://api.github.com/repos/${repoName}/contents/vault.json`, {
-                        headers: { 'Authorization': `token ${activeGithubToken}` }
-                    });
-                    if (getRes.ok) {
-                        const getData = await getRes.json();
-                        sha = getData.sha;
-                    }
-                } catch (e) { console.log('Arquivo novo, sem SHA prévio'); }
-
-                // Faz o PUT (Create/Update)
-                setCloudStatus('Enviando arquivo seguro...');
-                const putRes = await fetch(`https://api.github.com/repos/${repoName}/contents/vault.json`, {
-                    method: 'PUT',
+                // Cria um novo Gist ou atualiza se soubéssemos o ID (aqui criamos um novo para garantir)
+                // Idealmente, poderíamos buscar um gist existente com esse nome, mas create é mais seguro para "Setup"
+                const res = await fetch(`https://api.github.com/gists`, {
+                    method: 'POST',
                     headers: {
                         'Authorization': `token ${activeGithubToken}`,
                         'Content-Type': 'application/json'
                     },
                     body: JSON.stringify({
-                        message: "Update secure vault via StudyFlow App",
-                        content: base64Content,
-                        sha: sha // Inclui SHA se for update
+                        description: "StudyFlow Secure Vault (Encrypted)",
+                        public: false,
+                        files: files
                     })
                 });
 
-                if (!putRes.ok) throw new Error("Falha ao salvar no GitHub. Verifique se o Token tem permissão de 'repo' e se o nome do repositório está correto.");
+                if (!res.ok) throw new Error("Falha ao salvar Gist.");
 
                 setCloudStatus('Sucesso! ✅');
-                alert("Cofre salvo no Repositório! \n\nAgora você pode acessar este site de qualquer dispositivo. Ele baixará o 'vault.json' automaticamente e pedirá sua senha.");
+                alert("Cofre Salvo na Nuvem! \n\nAgora, ao usar a opção 'Já tenho conta' em um novo computador, o sistema encontrará este cofre automaticamente e pedirá sua senha.");
                 setVaultPassword('');
                 
-                // Também ativa localmente para consistência
-                try {
-                    localStorage.setItem('studyflow_secure_vault', encryptedString);
-                } catch(e) {}
+                // Também ativa localmente
+                try { localStorage.setItem('studyflow_secure_vault', encryptedString); } catch(e) {}
                 try { sessionStorage.setItem('studyflow_session_pass', vaultPassword); } catch(e){}
-                
                 setIsVaultActive(true);
             }
 
@@ -352,33 +314,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
         alert("Proteção local removida.");
     };
 
-    // --- Magic Link ---
-    const generateMagicLink = () => {
-        const activeApiKey = apiKeyInput.trim() || user.openAiApiKey;
-        const activeGithubToken = githubTokenInput.trim() || user.githubToken;
-        const activeGistId = backupGistId || user.backupGistId;
-
-        if (!activeApiKey && !activeGithubToken) {
-            alert("Você precisa ter chaves salvas para gerar um link.");
-            return;
-        }
-
-        const payload = JSON.stringify({
-            k: activeApiKey,
-            g: activeGithubToken,
-            b: activeGistId
-        });
-
-        const encoded = toBase64(payload);
-        const url = `${window.location.origin}${window.location.pathname}?sync=${encoded}`;
-        setMagicLink(url);
-    };
-
-    const copyMagicLink = () => {
-        navigator.clipboard.writeText(magicLink);
-        alert("Link copiado! Use-o para transferir suas chaves para outro dispositivo (Celular/PC).");
-    };
-
     // --- GitHub Sync Logic ---
     const handleBackupToGithub = async () => {
         const tokenToUse = githubTokenInput.trim() || user.githubToken;
@@ -390,7 +325,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
         setSyncStatus("Preparando dados...");
 
         try {
-            // Tenta ler do localStorage, se falhar usa objetos vazios
             const getSafe = (k: string) => { try { return JSON.parse(localStorage.getItem(k) || '[]'); } catch { return []; } };
             const getSafeObj = (k: string) => { try { return JSON.parse(localStorage.getItem(k) || '{}'); } catch { return {}; } };
             const getSafeStr = (k: string) => { try { return localStorage.getItem(k) || ''; } catch { return ''; } };
@@ -402,7 +336,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                 plans: getSafe('studyflow_plans'),
                 currentPlanId: getSafeStr('studyflow_current_plan'),
                 errors: getSafe('studyflow_errors'),
-                // SEGURANÇA: Remover chaves do backup na nuvem (Gist)
                 user: { 
                     ...user, 
                     githubToken: undefined, 
@@ -464,7 +397,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
             if (!fileKey) throw new Error("Arquivo de backup não encontrado.");
             const content = JSON.parse(data.files[fileKey].content);
 
-            // Tenta salvar localmente com proteção
             const safeSave = (k: string, v: string) => { try { localStorage.setItem(k, v); } catch(e) {} };
 
             if (content.subjects) safeSave('studyflow_subjects', JSON.stringify(content.subjects));
@@ -493,7 +425,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
     return (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm transition-opacity">
             <div className="bg-white dark:bg-[#1a1a2e] w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 transform transition-all scale-100 flex flex-col">
-                {/* Header */}
                 <div className="px-6 py-4 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-900/50 sticky top-0 z-10 backdrop-blur-md">
                     <h2 className="text-lg font-bold text-gray-900 dark:text-white">Editar Perfil</h2>
                     <button onClick={onClose} className="text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 transition-colors">
@@ -501,7 +432,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                     </button>
                 </div>
 
-                {/* Body */}
                 <div className="flex flex-col">
                     {!tempImage && (
                         <div className="flex border-b border-gray-100 dark:border-gray-800 px-6">
@@ -512,14 +442,12 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                     )}
 
                     <div className="p-6 flex flex-col gap-6">
-                        {/* Image Cropper */}
                         {tempImage ? (
                             <div className="flex flex-col items-center gap-6 animate-in fade-in">
                                  <div className="relative size-64 bg-gray-900 rounded-lg overflow-hidden cursor-move border-2 border-primary/50" onMouseDown={handleMouseDown} onMouseMove={handleMouseMove} onMouseUp={handleMouseUp} onMouseLeave={handleMouseUp}>
                                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
                                         <img ref={imgRef} src={tempImage} alt="Crop preview" style={{ transform: `translate(${cropPos.x}px, ${cropPos.y}px) scale(${cropScale})`, maxWidth: 'none', maxHeight: 'none' }} draggable={false}/>
                                     </div>
-                                    <div className="absolute inset-0 border-[30px] border-black/50 rounded-full pointer-events-none box-border"></div>
                                 </div>
                                 <div className="w-full max-w-xs flex items-center gap-4">
                                     <span className="material-symbols-outlined text-gray-400">zoom_out</span>
@@ -533,7 +461,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                             </div>
                         ) : (
                             <>
-                                {/* TAB 1: PROFILE */}
                                 {activeTab === 'PROFILE' && (
                                     <div className="flex flex-col gap-6 animate-in fade-in">
                                         <div className="flex flex-col items-center gap-4">
@@ -561,7 +488,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                                     </div>
                                 )}
 
-                                {/* TAB 2: KEYS & CONFIG */}
                                 {activeTab === 'KEYS' && (
                                     <div className="flex flex-col gap-6 animate-in fade-in">
                                         <div className="flex flex-col gap-4">
@@ -569,7 +495,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                                                 <span className="material-symbols-outlined text-primary text-xl">smart_toy</span>
                                                 <h3 className="text-sm font-bold text-gray-900 dark:text-white uppercase tracking-wide">Configurações de IA</h3>
                                             </div>
-                                            
                                             <div className="flex flex-col gap-1.5">
                                                 <div className="flex justify-between items-center">
                                                     <label className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">OpenAI API Key</label>
@@ -580,7 +505,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                                                     <button type="button" onClick={() => setShowApiKey(!showApiKey)} className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 hover:text-gray-600 dark:hover:text-gray-200 focus:outline-none"><span className="material-symbols-outlined text-[20px]">{showApiKey ? 'visibility_off' : 'visibility'}</span></button>
                                                 </div>
                                             </div>
-
                                             <div className="flex flex-col gap-1.5">
                                                 <label className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">Modelo GPT</label>
                                                 <div className="relative">
@@ -591,10 +515,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                                                 </div>
                                             </div>
                                         </div>
-
                                         <div className="h-px bg-gray-100 dark:bg-gray-800 w-full"></div>
-
-                                        {/* GitHub Sync */}
                                         <div className="flex flex-col gap-4">
                                             <div className="flex items-center gap-2 mb-1">
                                                 <span className="material-symbols-outlined text-gray-800 dark:text-white text-xl">cloud_sync</span>
@@ -605,7 +526,7 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                                             </div>
                                             <div className="flex flex-col gap-1.5">
                                                 <div className="flex justify-between items-center">
-                                                    <label className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">GitHub Token (Gist + Repo)</label>
+                                                    <label className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">GitHub Token (Gist)</label>
                                                     {hasSavedGithubToken && <span className="text-[10px] bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400 px-2 py-0.5 rounded-full font-bold flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">check_circle</span> Salvo</span>}
                                                 </div>
                                                 <div className="relative">
@@ -615,10 +536,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                                             </div>
                                             {(hasSavedGithubToken || githubTokenInput) && (
                                                 <div className="flex flex-col gap-3 mt-2 animate-in fade-in">
-                                                    <div className="flex flex-col gap-1.5">
-                                                        <label className="text-xs font-semibold uppercase text-gray-500 dark:text-gray-400">ID do Backup (Gist ID)</label>
-                                                        <input type="text" value={backupGistId} onChange={(e) => setBackupGistId(e.target.value)} placeholder="Será preenchido automaticamente..." className="w-full px-4 py-2.5 rounded-lg bg-gray-50 dark:bg-gray-800/50 border border-gray-200 dark:border-gray-700 text-gray-500 focus:ring-1 focus:ring-gray-300 outline-none text-xs font-mono" />
-                                                    </div>
                                                     <div className="flex gap-3">
                                                         <button onClick={handleBackupToGithub} disabled={isSyncing} className="flex-1 flex items-center justify-center gap-2 py-2 bg-gray-800 dark:bg-white text-white dark:text-gray-900 rounded-lg font-bold text-xs hover:opacity-90 transition-opacity disabled:opacity-50"><span className="material-symbols-outlined text-sm">cloud_upload</span> Salvar Dados</button>
                                                         <button onClick={handleRestoreFromGithub} disabled={isSyncing || !backupGistId} className="flex-1 flex items-center justify-center gap-2 py-2 border border-gray-300 dark:border-gray-600 text-gray-700 dark:text-white rounded-lg font-bold text-xs hover:bg-gray-50 dark:hover:bg-gray-800 transition-colors disabled:opacity-50"><span className="material-symbols-outlined text-sm">cloud_download</span> Restaurar</button>
@@ -630,18 +547,16 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                                     </div>
                                 )}
 
-                                {/* TAB 3: VAULT (HYBRID SECURITY) */}
                                 {activeTab === 'VAULT' && (
                                     <div className="flex flex-col gap-6 animate-in fade-in">
                                         <div className="bg-amber-50 dark:bg-amber-900/20 p-4 rounded-lg border border-amber-100 dark:border-amber-900/30 text-amber-900 dark:text-amber-200 text-sm">
                                             <div className="flex items-center gap-2 mb-2 font-bold uppercase text-xs">
                                                 <span className="material-symbols-outlined text-amber-500">lock</span>
-                                                Cofre Digital (Híbrido)
+                                                Cofre Digital
                                             </div>
                                             <p className="leading-relaxed mb-2">
-                                                Criptografe suas chaves com uma senha. O cofre pode ser salvo localmente (Navegador) ou no Repositório GitHub (Nuvem).
+                                                Criptografe suas chaves API com uma senha. O cofre pode ser salvo localmente ou no Gist para facilitar a recuperação em outros dispositivos usando apenas seu Token.
                                             </p>
-                                            <p className="font-bold text-xs">Ao abrir o site, você usará a senha para liberar o acesso.</p>
                                         </div>
 
                                         <div className="flex flex-col gap-4">
@@ -668,47 +583,27 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
 
                                             <div className="relative flex py-1 items-center">
                                                 <div className="flex-grow border-t border-gray-200 dark:border-gray-700"></div>
-                                                <span className="flex-shrink-0 mx-4 text-gray-400 text-xs font-bold uppercase">Ou Persistência Real</span>
+                                                <span className="flex-shrink-0 mx-4 text-gray-400 text-xs font-bold uppercase">Ou Nuvem</span>
                                                 <div className="flex-grow border-t border-gray-200 dark:border-gray-700"></div>
                                             </div>
 
-                                            {/* Opção 2: Nuvem (GitHub Repo) */}
-                                            <div className="p-4 bg-blue-50 dark:bg-blue-900/10 rounded-xl border border-blue-100 dark:border-blue-900/30 flex flex-col gap-3">
-                                                <div className="flex items-center gap-2">
-                                                    <span className="material-symbols-outlined text-blue-600 dark:text-blue-400">cloud_upload</span>
-                                                    <h4 className="font-bold text-sm text-blue-900 dark:text-blue-100">Salvar no Repositório</h4>
-                                                </div>
-                                                <p className="text-xs text-blue-800 dark:text-blue-300 leading-tight">
-                                                    Isso cria o arquivo <code>vault.json</code> no seu GitHub. Permite acessar de <strong>qualquer dispositivo</strong> e resiste à limpeza de cache.
-                                                </p>
-                                                
-                                                <div className="flex flex-col gap-1">
-                                                    <label className="text-[10px] font-bold uppercase text-blue-500">Nome do Repositório (user/repo)</label>
-                                                    <input 
-                                                        type="text" 
-                                                        value={repoName} 
-                                                        onChange={(e) => setRepoName(e.target.value)} 
-                                                        placeholder="ex: alexlima/studyflow" 
-                                                        className="w-full px-3 py-2 rounded bg-white dark:bg-black/20 border border-blue-200 dark:border-blue-800 text-sm focus:ring-1 focus:ring-blue-500 outline-none"
-                                                    />
-                                                </div>
-
-                                                <button 
-                                                    onClick={() => handleCreateVault('CLOUD')}
-                                                    disabled={isProcessingVault || !vaultPassword || !repoName}
-                                                    className="w-full py-2.5 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
-                                                >
-                                                    {isProcessingVault ? 'Enviando...' : 'Salvar na Nuvem'}
-                                                </button>
-                                                {cloudStatus && <p className="text-xs text-center font-bold text-blue-600 dark:text-blue-400 animate-pulse">{cloudStatus}</p>}
-                                            </div>
+                                            {/* Opção 2: Gist (Fácil Recuperação) */}
+                                            <button 
+                                                onClick={() => handleCreateVault('GIST')}
+                                                disabled={isProcessingVault || !vaultPassword || (!user.githubToken && !githubTokenInput)}
+                                                className="w-full py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-bold shadow-md shadow-blue-500/20 flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
+                                            >
+                                                {isProcessingVault ? 'Processando...' : 'Salvar Cofre no Gist'}
+                                            </button>
+                                            
+                                            {cloudStatus && <p className="text-xs text-center font-bold text-blue-600 dark:text-blue-400 animate-pulse">{cloudStatus}</p>}
                                         </div>
 
                                         {isVaultActive && (
                                             <div className="mt-2 text-center">
                                                 <p className="text-xs text-green-600 font-bold flex items-center justify-center gap-1 mb-2">
                                                     <span className="material-symbols-outlined text-sm">verified_user</span> 
-                                                    Cofre Ativo
+                                                    Cofre Ativo Localmente
                                                 </p>
                                                 <button 
                                                     onClick={handleRemoveLocalVault}
@@ -718,31 +613,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                                                 </button>
                                             </div>
                                         )}
-
-                                        <div className="h-px bg-gray-100 dark:bg-gray-800 w-full"></div>
-
-                                        {/* Magic Link Fallback */}
-                                        <div className="flex flex-col gap-2">
-                                            <div className="flex justify-between items-center">
-                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Transferência Rápida</label>
-                                            </div>
-                                            <div className="flex gap-2">
-                                                <button 
-                                                    onClick={generateMagicLink}
-                                                    className="px-4 py-2 bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 rounded-lg text-xs font-bold hover:bg-indigo-100 transition-colors flex-1"
-                                                >
-                                                    Gerar Link Mágico
-                                                </button>
-                                                {magicLink && (
-                                                    <button 
-                                                        onClick={copyMagicLink}
-                                                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg text-xs font-bold hover:bg-indigo-700 transition-colors"
-                                                    >
-                                                        Copiar
-                                                    </button>
-                                                )}
-                                            </div>
-                                        </div>
                                     </div>
                                 )}
                             </>
@@ -750,7 +620,6 @@ export const ProfileModal: React.FC<ProfileModalProps> = ({ user, isOpen, onClos
                     </div>
                 </div>
 
-                {/* Footer */}
                 {!tempImage && (
                     <div className="px-6 py-4 bg-gray-50 dark:bg-gray-900/50 border-t border-gray-100 dark:border-gray-800 flex justify-end gap-3 sticky bottom-0 z-10 backdrop-blur-md">
                         <button onClick={onClose} className="px-4 py-2 rounded-lg text-sm font-semibold text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition-colors">Fechar</button>
