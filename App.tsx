@@ -534,7 +534,7 @@ function App() {
       }));
   };
 
-  // Funções para manipular Logs Existentes (Edição e Exclusão)
+  // Funções para manipular Logs Existentes (Edição, Exclusão e Adição Manual)
   const handleUpdateLog = (subjectId: string, logId: string, updatedLog: Partial<StudyLog>) => {
       setSubjects(prev => prev.map(s => {
           if (s.id !== subjectId) return s;
@@ -552,6 +552,16 @@ function App() {
           return {
               ...s,
               logs: s.logs ? s.logs.filter(log => log.id !== logId) : []
+          };
+      }));
+  };
+
+  const handleAddSubjectLog = (subjectId: string, log: StudyLog) => {
+      setSubjects(prev => prev.map(s => {
+          if (s.id !== subjectId) return s;
+          return {
+              ...s,
+              logs: [log, ...(s.logs || [])]
           };
       }));
   };
@@ -624,7 +634,7 @@ function App() {
                                         apiKey={user.openAiApiKey} 
                                         model={user.openAiModel} 
                                     />;
-      case Screen.HISTORY: return <StudyHistory subjects={currentPlanSubjects} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteSubjectLog} />;
+      case Screen.HISTORY: return <StudyHistory subjects={currentPlanSubjects} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteSubjectLog} onAddLog={handleAddSubjectLog} />;
       case Screen.IMPORTER: return <Importer apiKey={user.openAiApiKey} model={user.openAiModel} onImport={handleImportSubjects} state={importerState} setState={setImporterState} />;
       case Screen.DYNAMIC_SCHEDULE: return <DynamicSchedule subjects={currentPlanSubjects} onUpdateSubject={handleUpdateSubject} user={user} onUpdateUser={setUser} errorLogs={currentPlanErrorLogs} />;
       case Screen.ERROR_NOTEBOOK: return <ErrorNotebook subjects={currentPlanSubjects} logs={currentPlanErrorLogs} onAddLog={handleAddErrorLog} onDeleteLog={handleDeleteErrorLog} />;

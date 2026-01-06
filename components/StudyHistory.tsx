@@ -5,15 +5,25 @@ interface StudyHistoryProps {
     subjects: Subject[];
     onUpdateLog: (subjectId: string, logId: string, updatedLog: Partial<StudyLog>) => void;
     onDeleteLog: (subjectId: string, logId: string) => void;
+    onAddLog?: (subjectId: string, log: StudyLog) => void;
 }
 
-export const StudyHistory: React.FC<StudyHistoryProps> = ({ subjects, onUpdateLog, onDeleteLog }) => {
+export const StudyHistory: React.FC<StudyHistoryProps> = ({ subjects, onUpdateLog, onDeleteLog, onAddLog }) => {
     const [searchTerm, setSearchTerm] = useState('');
     const [filterSubject, setFilterSubject] = useState('ALL');
+    const [isAdding, setIsAdding] = useState(false);
     
     // State for Log Editing
     const [editingLogId, setEditingLogId] = useState<string | null>(null);
     const [editLogData, setEditLogData] = useState<Partial<StudyLog>>({});
+
+    // State for New Log
+    const [newLogSubjectId, setNewLogSubjectId] = useState('');
+    const [newLogTopic, setNewLogTopic] = useState('');
+    const [newLogDate, setNewLogDate] = useState(new Date().toISOString().split('T')[0]);
+    const [newLogDuration, setNewLogDuration] = useState(30);
+    const [newLogQuestions, setNewLogQuestions] = useState(0);
+    const [newLogCorrect, setNewLogCorrect] = useState(0);
 
     // Achatar todos os logs em uma única lista com metadados da matéria
     const allLogs = useMemo(() => {
@@ -56,6 +66,34 @@ export const StudyHistory: React.FC<StudyHistoryProps> = ({ subjects, onUpdateLo
         }
     };
 
+    // --- Add Handlers ---
+    const handleAddSubmit = (e: React.FormEvent) => {
+        e.preventDefault();
+        if (!newLogSubjectId || !newLogTopic.trim() || !onAddLog) return;
+
+        const newLog: StudyLog = {
+            id: `manual-${Date.now()}`,
+            date: new Date(newLogDate),
+            topicId: `manual-topic-${Date.now()}`, // ID fictício para tópicos manuais
+            topicName: newLogTopic,
+            durationMinutes: newLogDuration,
+            questionsCount: newLogQuestions,
+            correctCount: newLogCorrect
+        };
+
+        onAddLog(newLogSubjectId, newLog);
+        setIsAdding(false);
+        
+        // Reset form
+        setNewLogSubjectId('');
+        setNewLogTopic('');
+        setNewLogDuration(30);
+        setNewLogQuestions(0);
+        setNewLogCorrect(0);
+    };
+
+    const selectedSubjectTopics = subjects.find(s => s.id === newLogSubjectId)?.topics || [];
+
     return (
         <div className="flex-1 w-full max-w-[1400px] mx-auto p-4 md:p-8 flex flex-col h-full overflow-hidden">
             {/* Header */}
@@ -71,13 +109,21 @@ export const StudyHistory: React.FC<StudyHistoryProps> = ({ subjects, onUpdateLo
                 </div>
                 
                 <div className="flex flex-col sm:flex-row gap-3">
+                    <button 
+                        onClick={() => setIsAdding(true)}
+                        className="flex items-center justify-center gap-2 px-4 py-2.5 bg-primary text-white font-bold rounded-xl shadow-lg shadow-primary/20 hover:bg-blue-600 transition-all active:scale-95 text-sm"
+                    >
+                        <span className="material-symbols-outlined text-[18px]">add_circle</span>
+                        Registrar Sessão
+                    </button>
+                    
                     <div className="relative">
                         <input 
                             type="text" 
                             placeholder="Buscar conteúdo..." 
                             value={searchTerm}
                             onChange={(e) => setSearchTerm(e.target.value)}
-                            className="pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-card-dark text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/50 outline-none w-full sm:w-64 text-sm"
+                            className="pl-10 pr-4 py-2.5 rounded-xl border border-slate-200 dark:border-slate-700 bg-white dark:bg-card-dark text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/50 outline-none w-full sm:w-48 text-sm"
                         />
                         <span className="material-symbols-outlined absolute left-3 top-1/2 -translate-y-1/2 text-slate-400">search</span>
                     </div>
@@ -263,6 +309,124 @@ export const StudyHistory: React.FC<StudyHistoryProps> = ({ subjects, onUpdateLo
                     <span>Mostrando mais recentes primeiro</span>
                 </div>
             </div>
+
+            {/* Modal de Adição Manual */}
+            {isAdding && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-card-dark w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6">
+                        <div className="flex justify-between items-center mb-6">
+                            <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
+                                <span className="material-symbols-outlined text-primary">add_task</span>
+                                Registrar Sessão Manualmente
+                            </h2>
+                            <button onClick={() => setIsAdding(false)} className="text-slate-400 hover:text-slate-600 dark:hover:text-white">
+                                <span className="material-symbols-outlined">close</span>
+                            </button>
+                        </div>
+                        
+                        <form onSubmit={handleAddSubmit} className="flex flex-col gap-4">
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">Disciplina *</label>
+                                <select 
+                                    required
+                                    value={newLogSubjectId}
+                                    onChange={(e) => setNewLogSubjectId(e.target.value)}
+                                    className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/50 py-2.5 px-3 text-sm"
+                                >
+                                    <option value="">Selecione...</option>
+                                    {subjects.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                                </select>
+                            </div>
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">Tópico *</label>
+                                <div className="relative">
+                                    <input 
+                                        required
+                                        type="text"
+                                        list="topics-list"
+                                        value={newLogTopic}
+                                        onChange={(e) => setNewLogTopic(e.target.value)}
+                                        placeholder="Ex: Leis de Newton (ou selecione da lista)"
+                                        className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/50 py-2.5 px-3 text-sm"
+                                        disabled={!newLogSubjectId}
+                                    />
+                                    {newLogSubjectId && (
+                                        <datalist id="topics-list">
+                                            {selectedSubjectTopics.map(t => (
+                                                <option key={t.id} value={t.name} />
+                                            ))}
+                                        </datalist>
+                                    )}
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">Data</label>
+                                    <input 
+                                        type="date"
+                                        required
+                                        value={newLogDate}
+                                        onChange={(e) => setNewLogDate(e.target.value)}
+                                        className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/50 py-2.5 px-3 text-sm"
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">Tempo (min)</label>
+                                    <input 
+                                        type="number"
+                                        min="1"
+                                        value={newLogDuration}
+                                        onChange={(e) => setNewLogDuration(parseInt(e.target.value))}
+                                        className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/50 py-2.5 px-3 text-sm"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">Questões</label>
+                                    <input 
+                                        type="number"
+                                        min="0"
+                                        value={newLogQuestions}
+                                        onChange={(e) => setNewLogQuestions(parseInt(e.target.value))}
+                                        className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/50 py-2.5 px-3 text-sm"
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-1.5">
+                                    <label className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">Acertos</label>
+                                    <input 
+                                        type="number"
+                                        min="0"
+                                        max={newLogQuestions}
+                                        value={newLogCorrect}
+                                        onChange={(e) => setNewLogCorrect(parseInt(e.target.value))}
+                                        className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-green-500/50 py-2.5 px-3 text-sm"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800 mt-2">
+                                <button 
+                                    type="button"
+                                    onClick={() => setIsAdding(false)}
+                                    className="px-4 py-2.5 rounded-lg text-sm font-bold text-slate-500 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button 
+                                    type="submit"
+                                    className="px-6 py-2.5 rounded-lg text-sm font-bold text-white bg-primary hover:bg-blue-600 shadow-lg shadow-primary/20 transition-all active:scale-95"
+                                >
+                                    Salvar Registro
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            )}
         </div>
     );
 };
