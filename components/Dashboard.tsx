@@ -312,35 +312,53 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
         if (!user.openAiApiKey) return alert("Configure a API Key no perfil.");
         setIsGeneratingInsight(true);
         try {
-            // Prompt enriquecido com "Explainable AI" e "Decision Justification"
-            const subjectsContext = data.attentionRanking.map(s => ({
-                Materia: s.name,
-                Acuracia: `${s.accuracy}% (Baseado em ${s.questions} questões)`,
-                TempoTotal: `${s.minutes} min`,
-                Recencia: typeof s.daysSinceLastStudy === 'number' ? `${s.daysSinceLastStudy} dias sem ver` : 'Nunca estudado',
-                ErrosCriticos: s.explicitErrors
-            }));
+            // Prompt enriquecido com Tópicos Específicos
+            const subjectsContext = data.attentionRanking.map(s => {
+                // Recupera dados originais para extrair tópicos
+                const originalSubject = subjects.find(sub => sub.id === s.id);
+                
+                // Tópicos já concluídos (Contexto do que ele já sabe)
+                const completedTopics = originalSubject?.topics
+                    .filter(t => t.completed)
+                    .map(t => t.name)
+                    .slice(0, 8) // Limita a 8 para não estourar tokens
+                    .join(', ') || 'Nenhum concluído';
+
+                // Tópicos com erros (Caderno de Erros)
+                const problematicTopics = errorLogs
+                    .filter(e => e.subjectId === s.id)
+                    .map(e => e.topicName)
+                    .slice(0, 5)
+                    .join(', ') || 'Sem erros registrados';
+
+                return {
+                    Materia: s.name,
+                    AcuraciaGeral: `${s.accuracy}% (Baseado em ${s.questions} questões)`,
+                    Recencia: typeof s.daysSinceLastStudy === 'number' ? `${s.daysSinceLastStudy} dias sem ver` : 'Nunca estudado',
+                    TopicosJaEstudados: completedTopics,
+                    TopicosComErros: problematicTopics
+                };
+            });
 
             const prompt = `
-                Você é o motor de inteligência do StudyFlow. Sua função NÃO é apenas dar dicas, é EXPLICAR POR QUE certas matérias estão no 'Radar de Atenção'.
+                Você é o motor de inteligência do StudyFlow. Sua função é EXPLICAR POR QUE certas matérias estão no 'Radar de Atenção', usando dados específicos.
                 
-                DADOS CRÍTICOS IDENTIFICADOS PELO SISTEMA:
+                DADOS DO ALUNO:
                 ${JSON.stringify(subjectsContext)}
 
                 OBJETIVO:
-                Para cada matéria crítica listada, forneça uma justificativa analítica curta no formato: "Priorizada porque [motivo baseado nos dados]".
+                Para cada matéria, forneça uma análise de 1 frase justificando a prioridade.
                 
-                REGRAS RÍGIDAS:
-                1. Use os dados exatos (Ex: "errou 60% das questões", "está há 18 dias sem revisão", "tem 5 erros críticos registrados").
-                2. Seja direto e cirúrgico. Sem "Olá", sem "Tudo bem". Vá direto ao ponto.
-                3. Formate a resposta em HTML simples (<ul>, <li>, <strong>).
-                4. Se a recência for alta (> 7 dias), destaque isso como perigo de esquecimento.
-                5. Se a acurácia for baixa (< 60%), destaque como lacuna de aprendizado.
+                REGRAS DE OURO:
+                1. MENCIONE TÓPICOS ESPECÍFICOS se houver dados de erros. Ex: "Prioridade alta pois você errou questões de 'Crimes contra a Vida'..."
+                2. SE NÃO HOUVER ERROS, focado na Recência/Esquecimento. Ex: "Você estudou 'Atos Administrativos' mas faz 15 dias que não revisa."
+                3. USE O CONTEXTO: Se ele já estudou muito mas a acurácia é baixa, sugira que ele pode estar avançando sem consolidar.
+                4. FORMATO: HTML (<ul>, <li> com <strong> no nome da matéria).
 
-                Exemplo de Saída Esperada:
+                Exemplo Ideal:
                 <ul>
-                  <li><strong>Direito Constitucional:</strong> Priorizado porque sua acurácia caiu para 45% e você não revisa este conteúdo há 12 dias. Risco alto de esquecimento.</li>
-                  <li><strong>Raciocínio Lógico:</strong> Alerta devido a 8 erros críticos registrados no caderno, apesar do tempo de estudo ser baixo.</li>
+                  <li><strong>Direito Penal:</strong> Alerta crítico em 'Teoria do Crime' (múltiplos erros). Sua acurácia geral de 40% indica necessidade de voltar à teoria.</li>
+                  <li><strong>Português:</strong> Faz 12 dias que você não revisa tópicos como 'Crase' e 'Sintaxe', risco alto de curva de esquecimento.</li>
                 </ul>
             `;
 
@@ -350,10 +368,10 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                 body: JSON.stringify({ 
                     model: user.openAiModel || 'gpt-4o-mini', 
                     messages: [
-                        { role: "system", content: "Você é um analista de dados educacionais focado em explicar decisões algorítmicas." }, 
+                        { role: "system", content: "Você é um analista de dados educacionais focado em explicar decisões algorítmicas com precisão cirúrgica." }, 
                         { role: "user", content: prompt }
                     ],
-                    temperature: 0.3 // Baixa temperatura para ser mais factual e analítico
+                    temperature: 0.3 
                 })
             });
             const resData = await response.json();
@@ -494,40 +512,77 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                 </div>
             </div>
 
-            {/* SEÇÃO 1: RADAR DE ATENÇÃO */}
+            {/* SEÇÃO 1: RADAR DE ATENÇÃO DINÂMICO */}
             <div className="flex flex-col gap-4">
                  <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="material-symbols-outlined text-red-500 animate-pulse">crisis_alert</span>
                     Radar de Atenção
                 </h3>
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2 bg-white dark:bg-card-dark rounded-xl border border-red-100 dark:border-red-900/20 shadow-sm p-5 relative overflow-hidden">
-                        <div className="absolute top-0 right-0 p-4 opacity-10">
-                            <span className="material-symbols-outlined text-9xl text-red-500">warning</span>
+                    <div className="lg:col-span-2 bg-[#0c0c1d] dark:bg-[#0c0c1d] rounded-xl border border-red-900/30 shadow-lg p-5 relative overflow-hidden group">
+                        
+                        {/* Efeito Scanner (Radar Sweep) */}
+                        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-red-500/5 to-transparent h-[50%] w-full animate-scan pointer-events-none z-0"></div>
+                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_transparent_0%,_rgba(0,0,0,0.8)_100%)] pointer-events-none z-0"></div>
+                        
+                        <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
+                            <span className="text-[10px] font-mono text-red-500 uppercase animate-pulse">Monitoramento Ativo</span>
+                            <div className="size-2 bg-red-500 rounded-full animate-ping"></div>
                         </div>
+
                         <div className="relative z-10">
                             {data.attentionRanking.length === 0 ? (
-                                <div className="p-4 bg-green-50 dark:bg-green-900/10 rounded-lg border border-green-100 dark:border-green-900/30 text-green-700 dark:text-green-400 text-sm font-medium flex items-center gap-2">
-                                    <span className="material-symbols-outlined">check_circle</span>
-                                    Tudo sob controle! Nenhuma disciplina crítica detectada no momento.
+                                <div className="p-8 flex flex-col items-center justify-center text-center">
+                                    <div className="size-16 rounded-full bg-green-500/10 flex items-center justify-center mb-4">
+                                        <span className="material-symbols-outlined text-3xl text-green-500">verified_user</span>
+                                    </div>
+                                    <h4 className="text-green-400 font-bold text-lg">Sistema Estável</h4>
+                                    <p className="text-slate-500 text-sm mt-1">Nenhuma anomalia de desempenho detectada.</p>
                                 </div>
                             ) : (
-                                <div className="flex flex-col gap-3">
-                                    {data.attentionRanking.map((sub, idx) => (
-                                        <div key={sub.id} className="flex items-center gap-4 p-3 bg-background-light dark:bg-background-dark/50 rounded-lg border border-slate-100 dark:border-slate-800/50">
-                                            <div className="flex items-center justify-center size-8 rounded-full bg-red-100 dark:bg-red-900/30 text-red-600 font-bold text-sm shrink-0">#{idx + 1}</div>
-                                            <div className="flex-1 min-w-0">
-                                                <div className="flex justify-between items-center mb-1">
-                                                    <h4 className="font-bold text-slate-900 dark:text-white truncate">{sub.name}</h4>
-                                                    <span className="text-[10px] uppercase font-bold text-red-500 bg-red-50 dark:bg-red-900/20 px-2 py-0.5 rounded">Urgência Alta</span>
+                                <div className="flex flex-col gap-4">
+                                    {data.attentionRanking.map((sub, idx) => {
+                                        // Cálculo de Nível de Ameaça (Visual)
+                                        const threatLevel = Math.min(100, sub.urgencyScore * 2); 
+                                        
+                                        return (
+                                            <div key={sub.id} className="relative bg-[#15152a]/80 backdrop-blur-sm border-l-4 border-red-500 rounded-r-lg p-4 hover:bg-[#1a1a35] transition-all group/item">
+                                                <div className="flex justify-between items-start mb-2">
+                                                    <div>
+                                                        <h4 className="font-bold text-white text-lg tracking-tight">{sub.name}</h4>
+                                                        <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
+                                                            {sub.explicitErrors > 0 && (
+                                                                <span className="flex items-center gap-1 text-red-400 font-bold">
+                                                                    <span className="material-symbols-outlined text-[14px]">warning</span>
+                                                                    {sub.explicitErrors} Erros Críticos
+                                                                </span>
+                                                            )}
+                                                            <span className="flex items-center gap-1">
+                                                                <span className="material-symbols-outlined text-[14px]">history</span>
+                                                                {typeof sub.daysSinceLastStudy === 'number' ? `${sub.daysSinceLastStudy}d s/ ver` : 'Nunca estudado'}
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-right">
+                                                        <span className="text-2xl font-black text-red-500">{100 - sub.accuracy}%</span>
+                                                        <p className="text-[9px] uppercase text-red-500/70 font-bold">Taxa de Erro</p>
+                                                    </div>
                                                 </div>
-                                                <div className="flex items-center gap-4 text-xs text-slate-500">
-                                                    <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">close</span>{100 - sub.accuracy}% Erro</span>
-                                                    <span className="flex items-center gap-1" title="Dias sem estudar"><span className="material-symbols-outlined text-[14px]">history</span>{sub.daysSinceLastStudy}d s/ ver</span>
+                                                
+                                                {/* Threat Bar */}
+                                                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mt-2 relative">
+                                                    <div 
+                                                        className="h-full bg-gradient-to-r from-orange-500 to-red-600 shadow-[0_0_10px_rgba(239,68,68,0.5)]" 
+                                                        style={{ width: `${threatLevel}%` }}
+                                                    ></div>
+                                                </div>
+                                                <div className="flex justify-between mt-1">
+                                                    <span className="text-[9px] font-mono text-slate-500 uppercase">Nível de Prioridade</span>
+                                                    <span className="text-[9px] font-mono text-red-400 font-bold">{threatLevel > 80 ? 'CRÍTICO' : 'ALTO'}</span>
                                                 </div>
                                             </div>
-                                        </div>
-                                    ))}
+                                        );
+                                    })}
                                 </div>
                             )}
                         </div>
