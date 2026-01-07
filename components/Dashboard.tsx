@@ -1,3 +1,4 @@
+
 import React, { useState, useMemo } from 'react';
 import { Screen, UserProfile, Subject, getSubjectIcon, ErrorLog, StudyLog, Topic } from '../types';
 
@@ -44,7 +45,8 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
     const [hoveredSlice, setHoveredSlice] = useState<string | null>(null);
 
     // --- CÁLCULOS EM TEMPO REAL ---
-    const activeSubjects = subjects.filter(s => s.active);
+    // Garante que apenas matérias ativas sejam consideradas em todo o dashboard
+    const activeSubjects = useMemo(() => subjects.filter(s => s.active), [subjects]);
 
     // =================================================================================
     // LÓGICA DO MAPA DO EDITAL (STATUS & HIERARQUIA & MÉTRICAS)
@@ -236,34 +238,46 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
             minutes: subMinutes,
             explicitErrors: explicitErrors,
             daysSinceLastStudy: daysSinceLastStudy !== null ? daysSinceLastStudy : 'Nunca',
-            rawDaysSince: daysSinceLastStudy !== null ? daysSinceLastStudy : 999
+            rawDaysSince: daysSinceLastStudy !== null ? daysSinceLastStudy : 999,
+            active: sub.active // Propagar status ativo
         };
     }).sort((a, b) => b.minutes - a.minutes); 
 
+    // --- REFINAMENTO DO ALGORITMO DO RADAR DE ATENÇÃO ---
     const attentionRanking = performanceBySubject
+        .filter(sub => sub.active) // Redundante pois activeSubjects já filtra, mas seguro
         .map(sub => {
             let urgencyScore = 0;
-            // Fator Acurácia
-            if (sub.questions > 0) {
-                urgencyScore += (100 - sub.accuracy) * 1.5; 
-            } else if (sub.minutes > 60) {
-                urgencyScore += 30; // Estudou muito mas não fez questão
+            
+            // Fator 1: Baixa Acurácia (Só conta se tiver feito questões)
+            if (sub.questions > 10) {
+                if (sub.accuracy < 60) urgencyScore += 40;
+                else if (sub.accuracy < 75) urgencyScore += 20;
             }
             
-            // Fator Erros Críticos
-            urgencyScore += (sub.explicitErrors * 10); 
+            // Fator 2: Erros Críticos Registrados
+            urgencyScore += (sub.explicitErrors * 15); 
             
-            // Fator "Esquecimento" (Recência) - Novo
-            if (typeof sub.rawDaysSince === 'number' && sub.rawDaysSince > 7) {
-                urgencyScore += (sub.rawDaysSince * 2); // Aumenta urgência a cada dia sem ver
+            // Fator 3: "Esquecimento" (Recência) - Só se já tiver estudado
+            if (typeof sub.rawDaysSince === 'number' && sub.rawDaysSince > 7 && sub.minutes > 0) {
+                urgencyScore += Math.min(40, sub.rawDaysSince * 2); 
             }
 
-            if (sub.minutes > 120 && sub.accuracy < 60) urgencyScore += 50;
+            // Fator 4: Muito estudo, pouca prática
+            if (sub.minutes > 120 && sub.questions < 5) urgencyScore += 25;
+
             return { ...sub, urgencyScore };
         })
-        .filter(sub => sub.urgencyScore > 10) 
+        .filter(sub => {
+            // FILTRO INTELIGENTE: Só mostra no radar se:
+            // 1. Tem score de urgência relevante (> 15)
+            // 2. E (Já estudou algo OU tem erro registrado) -> Remove matérias "virgens"
+            const hasStarted = sub.minutes > 0 || sub.questions > 0;
+            const hasErrors = sub.explicitErrors > 0;
+            return sub.urgencyScore > 15 && (hasStarted || hasErrors);
+        }) 
         .sort((a, b) => b.urgencyScore - a.urgencyScore)
-        .slice(0, 4); 
+        .slice(0, 3); // Limita a 3 itens para manter minimalismo
 
     const globalAccuracy = totalQuestions > 0 ? Math.round((totalCorrect / totalQuestions) * 100) : 0;
 
@@ -321,7 +335,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                 const completedTopics = originalSubject?.topics
                     .filter(t => t.completed)
                     .map(t => t.name)
-                    .slice(0, 8) // Limita a 8 para não estourar tokens
+                    .slice(0, 8) 
                     .join(', ') || 'Nenhum concluído';
 
                 // Tópicos com erros (Caderno de Erros)
@@ -512,73 +526,70 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                 </div>
             </div>
 
-            {/* SEÇÃO 1: RADAR DE ATENÇÃO DINÂMICO (GRID MODE) */}
+            {/* SEÇÃO 1: RADAR DE ATENÇÃO DINÂMICO (NOVO DESIGN COMPACTO) */}
             <div className="flex flex-col gap-4">
                  <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="material-symbols-outlined text-red-500 animate-pulse">crisis_alert</span>
                     Radar de Atenção
                 </h3>
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2 bg-[#0c0c1d] dark:bg-[#0c0c1d] rounded-xl border border-red-900/30 shadow-lg p-5 relative overflow-hidden group min-h-[300px]">
+                    <div className="lg:col-span-2 bg-gradient-to-br from-[#0c0c1d] to-[#15152a] rounded-xl border border-white/5 shadow-xl p-4 relative overflow-hidden flex flex-col">
+                        <div className="absolute inset-0 bg-red-500/5 pointer-events-none z-0"></div>
                         
-                        {/* Efeito Scanner (Radar Sweep) */}
-                        <div className="absolute inset-0 bg-gradient-to-b from-transparent via-red-500/5 to-transparent h-[50%] w-full animate-scan pointer-events-none z-0"></div>
-                        <div className="absolute inset-0 bg-[radial-gradient(circle_at_center,_transparent_0%,_rgba(0,0,0,0.8)_100%)] pointer-events-none z-0"></div>
-                        
-                        <div className="absolute top-4 right-4 flex items-center gap-2 z-10">
-                            <span className="text-[10px] font-mono text-red-500 uppercase animate-pulse">Monitoramento Ativo</span>
-                            <div className="size-2 bg-red-500 rounded-full animate-ping"></div>
+                        <div className="flex justify-between items-center mb-4 relative z-10">
+                            <span className="text-[10px] font-mono text-red-400 uppercase tracking-widest flex items-center gap-1.5">
+                                <span className="size-1.5 rounded-full bg-red-500 animate-ping"></span>
+                                Análise de Prioridade
+                            </span>
                         </div>
 
-                        <div className="relative z-10 h-full flex flex-col">
+                        <div className="relative z-10 flex-1 flex flex-col justify-center">
                             {data.attentionRanking.length === 0 ? (
-                                <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
-                                    <div className="size-16 rounded-full bg-green-500/10 flex items-center justify-center mb-4">
-                                        <span className="material-symbols-outlined text-3xl text-green-500">verified_user</span>
-                                    </div>
-                                    <h4 className="text-green-400 font-bold text-lg">Sistema Estável</h4>
-                                    <p className="text-slate-500 text-sm mt-1">Nenhuma anomalia de desempenho detectada.</p>
+                                <div className="flex flex-col items-center justify-center text-center p-4">
+                                    <span className="material-symbols-outlined text-3xl text-green-500/50 mb-2">verified_user</span>
+                                    <h4 className="text-green-400/80 font-bold text-sm">Sistema Estável</h4>
+                                    <p className="text-slate-500 text-xs">Nenhuma anomalia crítica detectada.</p>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
+                                <div className="flex flex-col gap-2">
                                     {data.attentionRanking.map((sub, idx) => {
                                         // Cálculo de Nível de Ameaça (Visual)
                                         const threatLevel = Math.min(100, sub.urgencyScore * 2); 
                                         
                                         return (
-                                            <div key={sub.id} className="relative bg-[#15152a]/80 backdrop-blur-sm border-l-4 border-red-500 rounded-r-lg p-3 hover:bg-[#1a1a35] transition-all group/item flex flex-col justify-between h-full min-h-[110px]">
-                                                <div className="flex justify-between items-start mb-2 gap-2">
-                                                    <div className="min-w-0">
-                                                        <h4 className="font-bold text-white text-sm md:text-base tracking-tight truncate" title={sub.name}>{sub.name}</h4>
-                                                        <div className="flex flex-col gap-0.5 text-[10px] text-slate-400 mt-1">
-                                                            {sub.explicitErrors > 0 && (
-                                                                <span className="flex items-center gap-1 text-red-400 font-bold">
-                                                                    <span className="material-symbols-outlined text-[12px]">warning</span>
-                                                                    {sub.explicitErrors} Erros
-                                                                </span>
-                                                            )}
-                                                            <span className="flex items-center gap-1">
-                                                                <span className="material-symbols-outlined text-[12px]">history</span>
-                                                                {typeof sub.daysSinceLastStudy === 'number' ? `${sub.daysSinceLastStudy}d off` : 'Nunca'}
-                                                            </span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="text-right shrink-0">
-                                                        <span className="text-xl font-black text-red-500">{100 - sub.accuracy}%</span>
-                                                        <p className="text-[8px] uppercase text-red-500/70 font-bold">Erro</p>
-                                                    </div>
-                                                </div>
+                                            <div key={sub.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/5 border border-white/5 hover:bg-white/10 transition-colors group">
+                                                {/* Indicador Lateral */}
+                                                <div className="w-1 h-8 rounded-full bg-red-500 shrink-0"></div>
                                                 
-                                                <div>
-                                                    <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden mt-2 relative">
-                                                        <div 
-                                                            className="h-full bg-gradient-to-r from-orange-500 to-red-600 shadow-[0_0_10px_rgba(239,68,68,0.5)]" 
-                                                            style={{ width: `${threatLevel}%` }}
-                                                        ></div>
+                                                {/* Info Principal */}
+                                                <div className="flex-1 min-w-0">
+                                                    <div className="flex justify-between items-center mb-1">
+                                                        <h4 className="font-bold text-slate-200 text-sm truncate pr-2">{sub.name}</h4>
+                                                        <span className="text-[10px] font-mono text-red-400 font-bold">{threatLevel > 80 ? 'CRÍTICO' : 'ALTO'}</span>
                                                     </div>
-                                                    <div className="flex justify-between mt-1">
-                                                        <span className="text-[8px] font-mono text-slate-500 uppercase">Prioridade</span>
-                                                        <span className="text-[8px] font-mono text-red-400 font-bold">{threatLevel > 80 ? 'CRÍTICO' : 'ALTO'}</span>
+                                                    
+                                                    {/* Barra de Progresso 'Negativo' */}
+                                                    <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden mb-1.5">
+                                                        <div className="h-full bg-gradient-to-r from-orange-500 to-red-600" style={{ width: `${threatLevel}%` }}></div>
+                                                    </div>
+
+                                                    <div className="flex items-center gap-3 text-[10px] text-slate-400">
+                                                        <span className="flex items-center gap-1">
+                                                            <span className="material-symbols-outlined text-[10px]">target</span>
+                                                            {sub.accuracy}% Acurácia
+                                                        </span>
+                                                        {typeof sub.daysSinceLastStudy === 'number' && sub.daysSinceLastStudy > 7 && (
+                                                            <span className="flex items-center gap-1 text-orange-400">
+                                                                <span className="material-symbols-outlined text-[10px]">history</span>
+                                                                {sub.daysSinceLastStudy}d ausente
+                                                            </span>
+                                                        )}
+                                                        {sub.explicitErrors > 0 && (
+                                                            <span className="flex items-center gap-1 text-red-400">
+                                                                <span className="material-symbols-outlined text-[10px]">warning</span>
+                                                                {sub.explicitErrors} Erros
+                                                            </span>
+                                                        )}
                                                     </div>
                                                 </div>
                                             </div>
@@ -588,14 +599,40 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                             )}
                         </div>
                     </div>
-                    <div className="lg:col-span-1 bg-gradient-to-br from-indigo-600 to-purple-700 rounded-xl shadow-lg text-white p-6 flex flex-col justify-between">
-                        <div>
-                            <div className="flex items-center gap-2 mb-3"><span className="material-symbols-outlined text-2xl">psychology</span><h3 className="font-bold text-lg">Diagnóstico IA</h3></div>
-                            {aiInsight ? (<div className="text-sm leading-relaxed opacity-90 max-h-[200px] overflow-y-auto custom-scrollbar pr-2" dangerouslySetInnerHTML={{ __html: aiInsight }}></div>) : (<p className="text-sm opacity-80">Peça à IA para explicar POR QUE esses tópicos foram priorizados (ex: "Você errou 60% e não vê há 18 dias").</p>)}
+
+                    {/* Card de IA Compacto */}
+                    <div className="lg:col-span-1 bg-gradient-to-br from-indigo-900 to-[#1e1e2d] border border-indigo-500/20 rounded-xl shadow-lg p-4 flex flex-col h-full min-h-[200px]">
+                        <div className="flex items-center gap-2 mb-3 text-indigo-300">
+                            <span className="material-symbols-outlined text-lg">psychology</span>
+                            <h3 className="font-bold text-sm uppercase tracking-wide">Diagnóstico IA</h3>
                         </div>
-                        <button onClick={generateAiInsights} disabled={isGeneratingInsight || data.attentionRanking.length === 0} className="mt-4 w-full py-2.5 bg-white/20 hover:bg-white/30 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-bold text-sm backdrop-blur-sm transition-all flex items-center justify-center gap-2">
-                            {isGeneratingInsight ? (<span className="size-4 border-2 border-white/50 border-t-white rounded-full animate-spin"></span>) : (<span className="material-symbols-outlined text-[18px]">auto_awesome</span>)}
-                            {isGeneratingInsight ? 'Analisando...' : 'Explicar Priorização'}
+                        
+                        <div className="flex-1 bg-black/20 rounded-lg p-3 border border-white/5 mb-3 overflow-y-auto custom-scrollbar">
+                            {aiInsight ? (
+                                <div className="text-xs text-slate-300 leading-relaxed" dangerouslySetInnerHTML={{ __html: aiInsight }}></div>
+                            ) : (
+                                <p className="text-xs text-slate-500 italic text-center mt-4">
+                                    Peça à IA para explicar a priorização do radar ao lado.
+                                </p>
+                            )}
+                        </div>
+
+                        <button 
+                            onClick={generateAiInsights} 
+                            disabled={isGeneratingInsight || data.attentionRanking.length === 0} 
+                            className="w-full py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-bold text-xs text-white transition-all flex items-center justify-center gap-2 active:scale-95 shadow-lg shadow-indigo-500/20"
+                        >
+                            {isGeneratingInsight ? (
+                                <>
+                                    <span className="size-3 border-2 border-white/50 border-t-white rounded-full animate-spin"></span>
+                                    Processando...
+                                </>
+                            ) : (
+                                <>
+                                    <span className="material-symbols-outlined text-[14px]">auto_awesome</span>
+                                    Explicar Prioridade
+                                </>
+                            )}
                         </button>
                     </div>
                 </div>
