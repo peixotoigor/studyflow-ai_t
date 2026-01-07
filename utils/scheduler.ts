@@ -16,6 +16,14 @@ const seededRandom = (seed: number) => {
     };
 };
 
+// Helper para obter data YYYY-MM-DD local (evita bugs de UTC -3h vs UTC 0)
+const getLocalDateString = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
+
 export const generateMonthlySchedule = (
     viewingDate: Date,
     subjects: Subject[],
@@ -34,9 +42,10 @@ export const generateMonthlySchedule = (
     const month = viewingDate.getMonth();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     
-    // Data de "Hoje" zerada para comparação
+    // Data de "Hoje" zerada para comparação LOCAL
     const today = new Date();
     today.setHours(0, 0, 0, 0);
+    const todayStr = getLocalDateString(today);
 
     // 3. Setup do Deck (Baralho)
     const seedBase = year * 1000 + month;
@@ -112,10 +121,12 @@ export const generateMonthlySchedule = (
 
     for (let day = 1; day <= limitDay; day++) {
         const currentDateObj = new Date(year, month, day);
+        const currentDateStr = getLocalDateString(currentDateObj);
         const currentDayOfWeek = currentDateObj.getDay();
         const isDayActive = settings.activeWeekDays.includes(currentDayOfWeek);
         
-        const isPastDate = currentDateObj < today;
+        // Comparação robusta de datas (String vs String)
+        const isPastDate = currentDateStr < todayStr;
 
         const dailyItems: ScheduleItem[] = [];
 
@@ -123,35 +134,43 @@ export const generateMonthlySchedule = (
         // RAMIFICAÇÃO A: PROCESSAR PASSADO (Baseado em LOGS REAIS)
         // =================================================================================
         if (isPastDate) {
-            const dateStr = currentDateObj.toISOString().split('T')[0];
-            
             // Procura logs reais para este dia
             activeSubjects.forEach(sub => {
                 if (sub.logs) {
                     sub.logs.forEach(log => {
-                        const logDateStr = new Date(log.date).toISOString().split('T')[0];
-                        if (logDateStr === dateStr) {
-                            const topicObj = sub.topics.find(t => t.id === log.topicId) || { id: 'unknown', name: log.topicName, completed: true };
+                        const logDateStr = getLocalDateString(new Date(log.date));
+                        
+                        if (logDateStr === currentDateStr) {
+                            // Busca o tópico REAL na lista atual de tópicos da matéria
+                            // Se o log for manual (id não bate), tenta achar por nome ou ignora
+                            const realTopic = sub.topics.find(t => t.id === log.topicId);
+                            
+                            // Objeto de exibição
+                            const displayTopic = realTopic || { id: 'unknown', name: log.topicName, completed: true };
                             
                             // Adiciona item histórico ao agendamento
                             dailyItems.push({
                                 subject: sub,
                                 type: 'THEORY', // Logs passados contam como estudo realizado
-                                topic: topicObj as Topic,
+                                topic: displayTopic as Topic,
                                 durationMinutes: log.durationMinutes
                             });
 
-                            // CRÍTICO: O estudo passado GERA revisões futuras
-                            const intervals = getReviewIntervals(sub);
-                            intervals.forEach(interval => {
-                                if (day + interval <= daysInMonth + 45) addReview(day + interval, sub);
-                            });
+                            // CRÍTICO: O estudo passado GERA revisões futuras APENAS SE:
+                            // 1. O tópico existe na disciplina
+                            // 2. O tópico está marcado como COMPLETED (garante integridade se usuário desmarcou)
+                            if (realTopic && realTopic.completed) {
+                                const intervals = getReviewIntervals(sub);
+                                intervals.forEach(interval => {
+                                    if (day + interval <= daysInMonth + 45) addReview(day + interval, sub);
+                                });
+                            }
                         }
                     });
                 }
             });
 
-            // Se não houver logs, assumimos que o usuário não estudou.
+            // Se não houver logs no passado, não geramos nada.
             schedule[day] = dailyItems.length > 0 ? dailyItems : [];
             continue; 
         }
@@ -197,12 +216,14 @@ export const generateMonthlySchedule = (
 
                 dailyItems.push({ subject: selectedSubject, type: 'THEORY', topic: topic });
 
-                // Agenda revisões futuras
+                // Agenda revisões futuras (Assume-se que ao agendar teoria no futuro, ela será concluída neste dia)
                 const intervals = getReviewIntervals(selectedSubject);
                 intervals.forEach(interval => {
                     if (day + interval <= daysInMonth + 30) addReview(day + interval, selectedSubject);
                 });
             } else {
+                // Fim dos tópicos (Revisão Geral ou Estudo Livre)
+                // Não gera novas revisões SRS pois não há tópico novo
                 dailyItems.push({ subject: selectedSubject, type: 'THEORY' }); 
             }
         }

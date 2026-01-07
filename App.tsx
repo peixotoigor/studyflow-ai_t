@@ -614,12 +614,29 @@ function App() {
       }));
   };
 
+  // Correção de Integridade: Ao apagar um log, verifica se era o ÚNICO log daquele tópico. Se for, desmarca o tópico como concluído.
   const handleDeleteSubjectLog = (subjectId: string, logId: string) => {
       if (!window.confirm("Deseja apagar este registro de estudo?")) return;
+      
       setSubjects(prev => prev.map(s => {
           if (s.id !== subjectId) return s;
+          
+          const logToDelete = s.logs?.find(l => l.id === logId);
           const newLogs = s.logs ? s.logs.filter(log => log.id !== logId) : [];
-          return { ...s, logs: newLogs };
+          
+          let newTopics = s.topics;
+
+          if (logToDelete && logToDelete.topicId) {
+              // Verifica se ainda existe algum log apontando para este topicId
+              const hasRemainingLogsForTopic = newLogs.some(l => l.topicId === logToDelete.topicId);
+              
+              if (!hasRemainingLogsForTopic) {
+                  // Se não há mais logs, o tópico volta a ser não-concluído
+                  newTopics = s.topics.map(t => t.id === logToDelete.topicId ? { ...t, completed: false } : t);
+              }
+          }
+
+          return { ...s, topics: newTopics, logs: newLogs };
       }));
   };
 
