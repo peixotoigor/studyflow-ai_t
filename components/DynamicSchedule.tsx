@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useMemo } from 'react';
 import { Subject, PriorityLevel, ScheduleItem, ProficiencyLevel, UserProfile, Topic, getSubjectIcon, ErrorLog } from '../types';
 import { generateMonthlySchedule } from '../utils/scheduler';
@@ -160,27 +161,45 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
     };
 
     // --- Renderização dos Itens ---
-    const renderScheduleItem = (item: ScheduleItem, idx: number, isPast: boolean) => {
+    const renderScheduleItem = (item: ScheduleItem, idx: number, isPast: boolean, isToday: boolean) => {
         const sub = item.subject;
         const isReview = item.type === 'REVIEW';
-        const color = sub.color || 'blue'; // Usa a cor da disciplina
+        const color = sub.color || 'blue';
         
+        // Verifica se é um item "Realizado" (Log). 
+        // No Scheduler, itens passados são sempre logs. 
+        // No presente (Hoje), precisamos ver se o item é resultado de um log real.
+        // O scheduler agora usa Logs reais para o dia atual. O item terá metadados se vier do banco?
+        // Como o scheduler.ts unifica a estrutura, podemos inferir se "isToday" e tem log.
+        // Mas a UI do "checked" é a mais importante.
+        // O scheduler.ts não tem flag 'isLog', mas podemos inferir se topic.completed for true E topic.id for igual ao log.
+        
+        // Simplificação Visual: Se é passado, está feito. Se é hoje, assumimos que itens que aparecem na lista 'scheduleData'
+        // podem ser logs ou simulados. O scheduler coloca Logs PRIMEIRO.
+        // Vamos usar a flag 'isPast' para opacidade, mas adicionar um check visual se for um item CONCLUÍDO (mesmo hoje).
+        
+        const isCompleted = isPast || (isToday && item.topic?.completed);
+
         const pastStyle = "bg-gray-100 dark:bg-gray-800 text-gray-500 border-gray-300 dark:border-gray-700 opacity-80";
-        // Estilo futuro usa a cor da disciplina para bg, texto e borda
         const futureStyle = `bg-${color}-50 dark:bg-${color}-900/20 text-${color}-700 dark:text-${color}-300 border-${color}-500`;
+        const completedTodayStyle = `bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-500`;
+
+        let activeStyle = futureStyle;
+        if (isPast) activeStyle = pastStyle;
+        else if (isToday && item.topic?.completed) activeStyle = completedTodayStyle;
 
         return (
-            <div key={`${sub.id}-${idx}`} className={`text-[10px] md:text-xs px-3 py-2 rounded-lg border-l-4 font-medium flex flex-col justify-center group shadow-sm transition-transform relative ${isPast ? pastStyle : futureStyle}`}>
+            <div key={`${sub.id}-${idx}`} className={`text-[10px] md:text-xs px-3 py-2 rounded-lg border-l-4 font-medium flex flex-col justify-center group shadow-sm transition-transform relative ${activeStyle}`}>
                 <div className="flex items-center gap-2 mb-1">
                     <span className="material-symbols-outlined text-[14px]">
-                        {isPast ? 'check_circle' : (isReview ? 'cached' : getSubjectIcon(sub.name))}
+                        {isCompleted ? 'check_circle' : (isReview ? 'cached' : getSubjectIcon(sub.name))}
                     </span>
                     <span className="truncate font-bold text-sm">
                         {sub.name}
                     </span>
                 </div>
                 {item.topic && (
-                    <div className={`text-[10px] truncate border-l border-current mt-0.5 pl-2 ml-1 ${isPast ? 'line-through opacity-70' : 'opacity-80'}`}>
+                    <div className={`text-[10px] truncate border-l border-current mt-0.5 pl-2 ml-1 ${isCompleted ? 'line-through opacity-70' : 'opacity-80'}`}>
                         {item.topic.name}
                     </div>
                 )}
@@ -192,7 +211,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                     {isReview && !isPast && (
                         <span className="text-[8px] uppercase font-bold bg-white/50 px-1 rounded">Revisão</span>
                     )}
-                    {isPast && <span className="text-[9px] uppercase font-bold">Realizado</span>}
+                    {isCompleted && <span className="text-[9px] uppercase font-bold flex items-center gap-1"><span className="material-symbols-outlined text-[10px]">done</span>Feito</span>}
                 </div>
             </div>
         );
@@ -253,7 +272,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                     </div>
                     
                     <div className="flex flex-col gap-1.5 mt-1 overflow-hidden">
-                        {visibleItems.map((item, idx) => renderScheduleItem(item, idx, isPast))}
+                        {visibleItems.map((item, idx) => renderScheduleItem(item, idx, isPast, isToday))}
                         {itemsForDay.length > PREVIEW_LIMIT && (
                             <div className="text-[10px] text-center text-primary font-bold bg-primary/5 rounded py-1">
                                 +{remainingCount} itens
@@ -310,7 +329,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                     </div>
                     <div className="p-3 flex flex-col gap-2">
                         {itemsForDay.length > 0 ? (
-                            itemsForDay.map((item, idx) => renderScheduleItem(item, idx, isPast))
+                            itemsForDay.map((item, idx) => renderScheduleItem(item, idx, isPast, isToday))
                         ) : (
                             <div className="text-center text-xs text-gray-400 py-2 italic">
                                 {isPast ? "Sem registros" : "Folga programada"}
@@ -349,12 +368,23 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                                     const isTheory = item.type === 'THEORY';
                                     const color = item.subject.color || 'blue';
                                     
+                                    // Verificação de "Feito Hoje"
+                                    const now = new Date();
+                                    const isToday = selectedDay === now.getDate() && currentDate.getMonth() === now.getMonth() && currentDate.getFullYear() === now.getFullYear();
+                                    const isCompleted = item.topic?.completed && isToday;
+
                                     // Cores dinâmicas baseadas na disciplina
-                                    const borderColor = `border-${color}-500`;
-                                    const bgClass = `bg-${color}-50 dark:bg-${color}-900/10`;
+                                    const borderColor = isCompleted ? 'border-green-500' : `border-${color}-500`;
+                                    const bgClass = isCompleted ? 'bg-green-50 dark:bg-green-900/20' : `bg-${color}-50 dark:bg-${color}-900/10`;
 
                                     return (
-                                        <div key={idx} className={`flex gap-4 p-4 rounded-xl border-l-4 ${borderColor} ${bgClass} shadow-sm`}>
+                                        <div key={idx} className={`flex gap-4 p-4 rounded-xl border-l-4 ${borderColor} ${bgClass} shadow-sm relative overflow-hidden`}>
+                                            {isCompleted && (
+                                                <div className="absolute top-0 right-0 bg-green-500 text-white px-2 py-0.5 rounded-bl-lg text-[10px] font-bold uppercase flex items-center gap-1">
+                                                    <span className="material-symbols-outlined text-[12px]">done_all</span> Feito
+                                                </div>
+                                            )}
+                                            
                                             <div className="flex flex-col items-center justify-center min-w-[50px] border-r border-gray-200 dark:border-gray-700 pr-4">
                                                 <span className="text-xl font-black text-slate-700 dark:text-slate-300">{item.durationMinutes}</span>
                                                 <span className="text-[10px] uppercase text-slate-400 font-bold">min</span>
@@ -367,7 +397,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                                                 </div>
                                                 <h4 className="font-bold text-slate-900 dark:text-white text-lg leading-tight">{item.subject.name}</h4>
                                                 {item.topic ? (
-                                                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 flex items-start gap-1">
+                                                    <p className={`text-sm text-slate-600 dark:text-slate-400 mt-1 flex items-start gap-1 ${isCompleted ? 'line-through opacity-70' : ''}`}>
                                                         <span className="material-symbols-outlined text-[16px] mt-0.5">subdirectory_arrow_right</span>
                                                         {item.topic.name}
                                                     </p>
@@ -786,8 +816,8 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                     {/* Legenda */}
                     <div className="hidden md:flex flex-wrap gap-4 mt-4 px-2">
                         <div className="flex items-center gap-2 text-xs">
-                            <span className="w-3 h-3 rounded bg-gray-200 dark:bg-gray-700 border border-gray-400 dark:border-gray-500"></span>
-                            <span className="text-text-secondary-light dark:text-text-secondary-dark">Realizado (Histórico)</span>
+                            <span className="w-3 h-3 rounded bg-green-500/20 border border-green-500"></span>
+                            <span className="text-text-secondary-light dark:text-text-secondary-dark">Concluído (Hoje/Passado)</span>
                         </div>
                         <div className="flex items-center gap-2 text-xs ml-4">
                             <span className="material-symbols-outlined text-[14px]">cached</span>
