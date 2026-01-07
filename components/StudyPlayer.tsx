@@ -685,17 +685,31 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                         
                         <div className="p-6 flex flex-col gap-6">
                             
-                            {/* Modalidades Selecionadas */}
-                             <div className="flex flex-col gap-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                                <span className="text-xs uppercase text-slate-400 font-bold">Modalidades Realizadas</span>
-                                <div className="flex flex-wrap gap-2">
-                                    {selectedModalities.map(m => {
-                                        const mod = modalities.find(mod => mod.id === m);
+                            {/* Modalidades Realizadas (Editável) */}
+                            <div className="flex flex-col gap-2">
+                                <label className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400 flex items-center gap-2">
+                                    <span className="material-symbols-outlined text-[16px]">category</span>
+                                    Modalidades (Toque para alterar)
+                                </label>
+                                <div className="flex flex-wrap gap-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-xl border border-slate-100 dark:border-slate-700">
+                                    {modalities.map(mod => {
+                                        const isSelected = selectedModalities.includes(mod.id);
                                         return (
-                                            <div key={m} className="flex items-center gap-1.5 bg-white dark:bg-black/20 border border-slate-200 dark:border-slate-700 px-2 py-1 rounded text-xs font-bold text-slate-700 dark:text-slate-300">
-                                                <span className="material-symbols-outlined text-[14px] text-primary">{mod?.icon}</span>
-                                                {mod?.label}
-                                            </div>
+                                            <button
+                                                key={mod.id}
+                                                onClick={() => toggleModality(mod.id)}
+                                                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all border ${
+                                                    isSelected 
+                                                    ? 'bg-white dark:bg-black/40 border-primary text-primary shadow-sm ring-1 ring-primary/20' 
+                                                    : 'bg-transparent border-transparent text-slate-400 hover:bg-white/50 dark:hover:bg-white/5 hover:text-slate-600 dark:hover:text-slate-300'
+                                                }`}
+                                            >
+                                                <span className={`material-symbols-outlined text-[16px] ${isSelected ? 'fill' : ''}`}>
+                                                    {mod.icon}
+                                                </span>
+                                                {mod.label}
+                                                {isSelected && <span className="material-symbols-outlined text-[14px] ml-1">check</span>}
+                                            </button>
                                         );
                                     })}
                                 </div>
