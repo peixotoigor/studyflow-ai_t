@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AiTutorChat } from './AiTutorChat';
 import { Subject, ScheduleItem, Topic, StudyModality, Screen, ErrorLog } from '../types';
+import { generateMonthlySchedule } from '../utils/scheduler';
 
 interface StudyPlayerProps {
     apiKey?: string;
@@ -46,16 +47,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
     
     const [selectedModalities, setSelectedModalities] = useState<StudyModality[]>(['PDF']);
 
-    // PERFORMANCE: Pre-calculate error counts (Igual ao DynamicSchedule)
-    const subjectErrorCounts = useMemo(() => {
-        const counts: Record<string, number> = {};
-        errorLogs.forEach(log => {
-            counts[log.subjectId] = (counts[log.subjectId] || 0) + 1;
-        });
-        return counts;
-    }, [errorLogs]);
-
-    // --- FUNÇÃO PURA DE CÁLCULO DA FILA (Extraída para garantir execução a cada render relevante) ---
+    // --- FUNÇÃO PURA DE CÁLCULO DA FILA (VIA UTILS) ---
     const calculateDailyQueue = (): ScheduleItem[] => {
         if (subjects.length === 0) return [];
         
@@ -65,7 +57,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         if (activeSubjects.length === 0) return [];
 
         // Ler configurações do localStorage (Fonte da Verdade Compartilhada)
-        let settings = { subjectsPerDay: 2, srsPace: 'NORMAL', srsMode: 'SMART', activeWeekDays: [0,1,2,3,4,5,6] };
+        let settings = { subjectsPerDay: 2, srsPace: 'NORMAL' as const, srsMode: 'SMART' as const, activeWeekDays: [0,1,2,3,4,5,6] };
         let selectedIds = new Set<string>();
         try {
             const savedSettings = localStorage.getItem('studyflow_schedule_settings');
@@ -77,146 +69,23 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         } catch(e) {}
 
         const now = new Date();
-        now.setHours(0, 0, 0, 0); 
-        const viewingMonth = now.getMonth();
-        const viewingYear = now.getFullYear();
         const todayDay = now.getDate();
 
-        // 1. Setup Seeded Random (Mesma semente do DynamicSchedule)
-        const seedBase = viewingYear * 1000 + viewingMonth;
-        let seedState = seedBase;
-        const seededRandom = () => {
-            seedState = (seedState * 9301 + 49297) % 233280;
-            return seedState / 233280;
-        };
-
-        // 2. Construir Baralho Ponderado
-        let cycleDeck: Subject[] = [];
+        // Filtra apenas matérias selecionadas
         const planSubjects = activeSubjects.filter(s => selectedIds.has(s.id));
-        
-        if (planSubjects.length > 0) {
-            planSubjects.forEach(sub => {
-                const pWeight = sub.priority === 'HIGH' ? 3 : sub.priority === 'LOW' ? 1 : 2;
-                const kWeight = sub.proficiency === 'BEGINNER' ? 3 : sub.proficiency === 'ADVANCED' ? 1 : 2;
-                const totalWeight = Math.min(pWeight * kWeight, 9); 
-                for(let k=0; k < totalWeight; k++) cycleDeck.push(sub);
-            });
 
-            // Embaralhar
-            for (let i = cycleDeck.length - 1; i > 0; i--) {
-                const j = Math.floor(seededRandom() * (i + 1));
-                [cycleDeck[i], cycleDeck[j]] = [cycleDeck[j], cycleDeck[i]];
-            }
-            // Otimizar
-            for (let i = 1; i < cycleDeck.length - 1; i++) {
-                if (cycleDeck[i].id === cycleDeck[i-1].id) {
-                    [cycleDeck[i], cycleDeck[i+1]] = [cycleDeck[i+1], cycleDeck[i]];
-                }
-            }
-        }
+        // CHAMA O MESMO UTILITÁRIO DO CALENDÁRIO
+        // Passamos 'todayDay' como targetDayOnly para performance, mas com a mesma semente base (Date)
+        const schedule = generateMonthlySchedule(
+            now, // Usa 'now' para determinar ano/mês (seed)
+            planSubjects,
+            errorLogs,
+            settings,
+            dailyAvailableTime,
+            todayDay
+        );
 
-        // 3. Simulação
-        let globalDeckCursor = 0;
-        const pendingReviews: { [key: number]: Subject[] } = {};
-        const subjectTopicCursors: Record<string, number> = {};
-        
-        planSubjects.forEach(s => {
-            const firstPendingIndex = s.topics.findIndex(t => !t.completed);
-            subjectTopicCursors[s.id] = firstPendingIndex === -1 ? 0 : firstPendingIndex;
-        });
-
-        const getNextSubject = (): Subject | null => {
-            if (cycleDeck.length === 0) return null;
-            const sub = cycleDeck[globalDeckCursor % cycleDeck.length];
-            globalDeckCursor++;
-            return sub;
-        };
-
-        const getReviewIntervals = (subject: Subject): number[] => {
-            if (settings.srsMode === 'MANUAL') {
-                if (settings.srsPace === 'ACCELERATED') return [1, 3, 7];
-                if (settings.srsPace === 'RELAXED') return [3, 10, 20];
-                return [1, 7, 14]; 
-            }
-            const subErrors = subjectErrorCounts[subject.id] || 0;
-            const accuracy = 70; 
-            if (subErrors > 3 || accuracy < 60) return [1, 3, 7]; 
-            if (accuracy > 85 && subErrors === 0) return [3, 14, 30]; 
-            return [1, 7, 14];
-        };
-
-        const addReview = (targetDay: number, subject: Subject) => {
-            if (!pendingReviews[targetDay]) pendingReviews[targetDay] = [];
-            if (!pendingReviews[targetDay].some(s => s.id === subject.id)) {
-                pendingReviews[targetDay].push(subject);
-            }
-        };
-
-        // Executar Simulação até Hoje
-        for (let day = 1; day <= todayDay; day++) {
-            const currentDateObj = new Date(viewingYear, viewingMonth, day);
-            const currentDayOfWeek = currentDateObj.getDay();
-            const isDayActive = settings.activeWeekDays.includes(currentDayOfWeek);
-            
-            const stepItems: ScheduleItem[] = [];
-
-            if (!isDayActive) {
-                if (pendingReviews[day]) {
-                    const nextDay = day + 1;
-                    if (!pendingReviews[nextDay]) pendingReviews[nextDay] = [];
-                    pendingReviews[day].forEach(r => {
-                        if (!pendingReviews[nextDay].some(pr => pr.id === r.id)) pendingReviews[nextDay].push(r);
-                    });
-                }
-                if (day === todayDay) return []; // Hoje é folga
-                continue;
-            }
-
-            // 1. Revisões
-            if (pendingReviews[day]) {
-                pendingReviews[day].forEach(revSub => {
-                    if (selectedIds.has(revSub.id)) {
-                        stepItems.push({ subject: revSub, type: 'REVIEW' });
-                    }
-                });
-            }
-
-            // 2. Teoria
-            let slotsForTheory = settings.subjectsPerDay - stepItems.length;
-            if (slotsForTheory < 0) slotsForTheory = 0;
-
-            for (let i = 0; i < slotsForTheory; i++) {
-                const selectedSubject = getNextSubject();
-                if (!selectedSubject) break;
-
-                const idx = subjectTopicCursors[selectedSubject.id];
-                if (selectedSubject.topics && idx < selectedSubject.topics.length) {
-                    const topic = selectedSubject.topics[idx];
-                    subjectTopicCursors[selectedSubject.id] = idx + 1;
-
-                    stepItems.push({ subject: selectedSubject, type: 'THEORY', topic: topic });
-
-                    const intervals = getReviewIntervals(selectedSubject);
-                    intervals.forEach(interval => {
-                        if (day + interval <= 60) addReview(day + interval, selectedSubject);
-                    });
-                } else {
-                    stepItems.push({ subject: selectedSubject, type: 'THEORY' }); 
-                }
-            }
-
-            if (day === todayDay) {
-                if (stepItems.length > 0) {
-                    const totalWeight = stepItems.reduce((acc, item) => acc + (item.type === 'REVIEW' ? 1 : 2), 0);
-                    stepItems.forEach(item => {
-                        const weight = item.type === 'REVIEW' ? 1 : 2;
-                        item.durationMinutes = Math.round((weight / totalWeight) * dailyAvailableTime);
-                    });
-                }
-                return stepItems;
-            }
-        }
-        return [];
+        return schedule[todayDay] || [];
     };
 
     // --- EFFECT PRINCIPAL: INICIALIZAÇÃO E RESTAURAÇÃO INTELIGENTE ---
@@ -234,14 +103,12 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                 const today = new Date().toISOString().split('T')[0];
                 
                 if (parsed.date === today && parsed.todaysQueue.length > 0) {
-                    // Verificar consistência: Os IDs das matérias e tópicos batem?
-                    // Criamos "assinaturas" simples das filas para comparar
+                    // Verificar consistência: Assinaturas de ID e Tipo
                     const savedSignature = parsed.todaysQueue.map(i => `${i.subject.id}-${i.type}-${i.topic?.id || 'none'}`).join('|');
                     const freshSignature = freshQueue.map(i => `${i.subject.id}-${i.type}-${i.topic?.id || 'none'}`).join('|');
 
                     if (savedSignature === freshSignature) {
-                        // Se for idêntico, restauramos o progresso (índice, timer)
-                        // Precisamos re-hidratar os objetos Subject/Topic para ter referências atualizadas
+                        // Re-hidratar objetos
                         const rehydratedQueue = parsed.todaysQueue.map(item => {
                             const freshSubject = subjects.find(s => s.id === item.subject.id) || item.subject;
                             const freshTopic = item.topic ? freshSubject.topics.find(t => t.id === item.topic?.id) : undefined;

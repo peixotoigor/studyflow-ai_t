@@ -1,0 +1,180 @@
+import { Subject, ScheduleItem, Topic, ErrorLog } from '../types';
+
+export interface ScheduleSettings {
+    subjectsPerDay: number;
+    srsPace: 'ACCELERATED' | 'NORMAL' | 'RELAXED';
+    srsMode: 'SMART' | 'MANUAL';
+    activeWeekDays: number[];
+}
+
+// Gerador de Números Pseudo-Aleatórios (Seeded)
+const seededRandom = (seed: number) => {
+    let state = seed;
+    return () => {
+        state = (state * 9301 + 49297) % 233280;
+        return state / 233280;
+    };
+};
+
+export const generateMonthlySchedule = (
+    viewingDate: Date,
+    subjects: Subject[],
+    errorLogs: ErrorLog[],
+    settings: ScheduleSettings,
+    dailyTimeMinutes: number,
+    // Se fornecido, retorna apenas a fila deste dia específico para performance
+    targetDayOnly?: number 
+): Record<number, ScheduleItem[] | null> => {
+    const schedule: Record<number, ScheduleItem[] | null> = {};
+    
+    // 1. Normalização e Ordenação (CRÍTICO)
+    const activeSubjects = subjects.filter(s => s.active).sort((a, b) => a.id.localeCompare(b.id));
+    if (activeSubjects.length === 0) return {};
+
+    const year = viewingDate.getFullYear();
+    const month = viewingDate.getMonth();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    // 3. Setup do Deck (Baralho)
+    // Seed baseada no Ano e Mês para garantir consistência visual no calendário
+    const seedBase = year * 1000 + month;
+    const random = seededRandom(seedBase);
+
+    let cycleDeck: Subject[] = [];
+    
+    activeSubjects.forEach(sub => {
+        const pWeight = sub.priority === 'HIGH' ? 3 : sub.priority === 'LOW' ? 1 : 2;
+        const kWeight = sub.proficiency === 'BEGINNER' ? 3 : sub.proficiency === 'ADVANCED' ? 1 : 2;
+        const totalWeight = Math.min(pWeight * kWeight, 9); 
+
+        for(let k=0; k < totalWeight; k++) cycleDeck.push(sub);
+    });
+
+    // Embaralhamento Fisher-Yates com Seed
+    for (let i = cycleDeck.length - 1; i > 0; i--) {
+        const j = Math.floor(random() * (i + 1));
+        [cycleDeck[i], cycleDeck[j]] = [cycleDeck[j], cycleDeck[i]];
+    }
+
+    // Otimização de Adjacência
+    for (let i = 1; i < cycleDeck.length - 1; i++) {
+        if (cycleDeck[i].id === cycleDeck[i-1].id) {
+            [cycleDeck[i], cycleDeck[i+1]] = [cycleDeck[i+1], cycleDeck[i]];
+        }
+    }
+
+    // 4. Variáveis de Estado da Simulação
+    let globalDeckCursor = 0;
+    const pendingReviews: { [key: number]: Subject[] } = {};
+    const subjectTopicCursors: Record<string, number> = {};
+    
+    // Contagem de Erros para SRS
+    const subjectErrorCounts: Record<string, number> = {};
+    errorLogs.forEach(log => {
+        subjectErrorCounts[log.subjectId] = (subjectErrorCounts[log.subjectId] || 0) + 1;
+    });
+
+    activeSubjects.forEach(s => {
+        const firstPendingIndex = s.topics.findIndex(t => !t.completed);
+        subjectTopicCursors[s.id] = firstPendingIndex === -1 ? 0 : firstPendingIndex;
+    });
+
+    const getNextSubject = (): Subject | null => {
+        if (cycleDeck.length === 0) return null;
+        const sub = cycleDeck[globalDeckCursor % cycleDeck.length];
+        globalDeckCursor++;
+        return sub;
+    };
+
+    const getReviewIntervals = (subject: Subject): number[] => {
+        if (settings.srsMode === 'MANUAL') {
+            if (settings.srsPace === 'ACCELERATED') return [1, 3, 7];
+            if (settings.srsPace === 'RELAXED') return [3, 10, 20];
+            return [1, 7, 14]; 
+        }
+        const subErrors = subjectErrorCounts[subject.id] || 0;
+        // Lógica simplificada de acurácia (poderia vir dos logs)
+        if (subErrors > 3) return [1, 3, 7]; 
+        return [1, 7, 14];
+    };
+
+    const addReview = (targetDay: number, subject: Subject) => {
+        if (!pendingReviews[targetDay]) pendingReviews[targetDay] = [];
+        if (!pendingReviews[targetDay].some(s => s.id === subject.id)) {
+            pendingReviews[targetDay].push(subject);
+        }
+    };
+
+    // 5. Loop de Simulação (Dia a Dia)
+    // Se targetDayOnly for definido, rodamos até ele. Se não, rodamos o mês todo.
+    const limitDay = targetDayOnly || daysInMonth;
+
+    for (let day = 1; day <= limitDay; day++) {
+        const currentDateObj = new Date(year, month, day);
+        const currentDayOfWeek = currentDateObj.getDay();
+        const isDayActive = settings.activeWeekDays.includes(currentDayOfWeek);
+        
+        const dailyItems: ScheduleItem[] = [];
+
+        if (!isDayActive) {
+            schedule[day] = null;
+            // Empurra revisões pendentes para o próximo dia
+            if (pendingReviews[day]) {
+                const nextDay = day + 1;
+                if (!pendingReviews[nextDay]) pendingReviews[nextDay] = [];
+                pendingReviews[day].forEach(r => {
+                    if (!pendingReviews[nextDay].some(pr => pr.id === r.id)) pendingReviews[nextDay].push(r);
+                });
+            }
+            continue;
+        }
+
+        // 5.1. Processar Revisões
+        if (pendingReviews[day]) {
+            pendingReviews[day].forEach(revSub => {
+                // Verifica se a matéria ainda está ativa (pode ter sido arquivada durante o mês teoricamente, mas aqui usamos o snapshot inicial)
+                dailyItems.push({ subject: revSub, type: 'REVIEW' });
+            });
+        }
+
+        // 5.2. Preencher com Teoria
+        let slotsForTheory = settings.subjectsPerDay - dailyItems.length;
+        if (slotsForTheory < 0) slotsForTheory = 0;
+
+        for (let i = 0; i < slotsForTheory; i++) {
+            const selectedSubject = getNextSubject();
+            if (!selectedSubject) break;
+
+            const idx = subjectTopicCursors[selectedSubject.id];
+            if (selectedSubject.topics && idx < selectedSubject.topics.length) {
+                const topic = selectedSubject.topics[idx];
+                subjectTopicCursors[selectedSubject.id] = idx + 1;
+
+                dailyItems.push({ subject: selectedSubject, type: 'THEORY', topic: topic });
+
+                // Agendar SRS
+                const intervals = getReviewIntervals(selectedSubject);
+                intervals.forEach(interval => {
+                    // Limite de overflow para não explodir memória
+                    if (day + interval <= daysInMonth + 30) addReview(day + interval, selectedSubject);
+                });
+            } else {
+                // Matéria finalizada ou sem tópicos - Estudo Geral
+                dailyItems.push({ subject: selectedSubject, type: 'THEORY' }); 
+            }
+        }
+
+        // 5.3. Distribuir Tempo
+        if (dailyItems.length > 0) {
+            const totalWeight = dailyItems.reduce((acc, item) => acc + (item.type === 'REVIEW' ? 1 : 2), 0);
+            dailyItems.forEach(item => {
+                const weight = item.type === 'REVIEW' ? 1 : 2;
+                item.durationMinutes = Math.round((weight / totalWeight) * dailyTimeMinutes);
+            });
+        }
+
+        schedule[day] = dailyItems;
+    }
+
+    return schedule;
+};
