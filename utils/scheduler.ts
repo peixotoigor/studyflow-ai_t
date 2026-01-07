@@ -5,7 +5,7 @@ export interface ScheduleSettings {
     srsPace: 'ACCELERATED' | 'NORMAL' | 'RELAXED';
     srsMode: 'SMART' | 'MANUAL';
     activeWeekDays: number[];
-    enableSRS?: boolean; // Novo parâmetro
+    enableSRS?: boolean;
 }
 
 // Gerador de Números Pseudo-Aleatórios (Seeded)
@@ -17,7 +17,7 @@ const seededRandom = (seed: number) => {
     };
 };
 
-// Helper para obter data YYYY-MM-DD local (evita bugs de UTC -3h vs UTC 0)
+// Helper para obter data YYYY-MM-DD local
 const getLocalDateString = (date: Date): string => {
     const year = date.getFullYear();
     const month = String(date.getMonth() + 1).padStart(2, '0');
@@ -34,7 +34,7 @@ export const generateMonthlySchedule = (
     targetDayOnly?: number 
 ): Record<number, ScheduleItem[] | null> => {
     const schedule: Record<number, ScheduleItem[] | null> = {};
-    const useSRS = settings.enableSRS !== false; // Default true se não especificado
+    const useSRS = settings.enableSRS !== false; 
     
     // 1. Normalização e Ordenação
     const activeSubjects = subjects.filter(s => s.active).sort((a, b) => a.id.localeCompare(b.id));
@@ -44,39 +44,35 @@ export const generateMonthlySchedule = (
     const month = viewingDate.getMonth();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
     
-    // Data de "Hoje" zerada para comparação LOCAL
+    // Data de "Hoje" zerada para comparação
     const today = new Date();
     today.setHours(0, 0, 0, 0);
     const todayStr = getLocalDateString(today);
 
-    // 3. Setup do Deck (Baralho)
+    // 2. Setup do Deck (Baralho)
     const seedBase = year * 1000 + month;
     const random = seededRandom(seedBase);
 
     let cycleDeck: Subject[] = [];
-    
     activeSubjects.forEach(sub => {
         const pWeight = sub.priority === 'HIGH' ? 3 : sub.priority === 'LOW' ? 1 : 2;
         const kWeight = sub.proficiency === 'BEGINNER' ? 3 : sub.proficiency === 'ADVANCED' ? 1 : 2;
         const totalWeight = Math.min(pWeight * kWeight, 9); 
-
         for(let k=0; k < totalWeight; k++) cycleDeck.push(sub);
     });
 
-    // Embaralhamento Fisher-Yates
     for (let i = cycleDeck.length - 1; i > 0; i--) {
         const j = Math.floor(random() * (i + 1));
         [cycleDeck[i], cycleDeck[j]] = [cycleDeck[j], cycleDeck[i]];
     }
-
-    // Otimização de Adjacência
+    
     for (let i = 1; i < cycleDeck.length - 1; i++) {
         if (cycleDeck[i].id === cycleDeck[i-1].id) {
             [cycleDeck[i], cycleDeck[i+1]] = [cycleDeck[i+1], cycleDeck[i]];
         }
     }
 
-    // 4. Variáveis de Estado
+    // 3. Variáveis de Estado
     let globalDeckCursor = 0;
     const pendingReviews: { [key: number]: Subject[] } = {};
     const subjectTopicCursors: Record<string, number> = {};
@@ -86,7 +82,6 @@ export const generateMonthlySchedule = (
         subjectErrorCounts[log.subjectId] = (subjectErrorCounts[log.subjectId] || 0) + 1;
     });
 
-    // Inicializa cursores no primeiro tópico NÃO concluído
     activeSubjects.forEach(s => {
         const firstPendingIndex = s.topics.findIndex(t => !t.completed);
         subjectTopicCursors[s.id] = firstPendingIndex === -1 ? 0 : firstPendingIndex;
@@ -111,17 +106,14 @@ export const generateMonthlySchedule = (
     };
 
     const addReview = (targetDay: number, subject: Subject) => {
-        // Se SRS estiver desligado, não adiciona revisões futuras
         if (!useSRS) return;
-
         if (!pendingReviews[targetDay]) pendingReviews[targetDay] = [];
-        // Evita duplicatas de revisão para a mesma matéria no mesmo dia
         if (!pendingReviews[targetDay].some(s => s.id === subject.id)) {
             pendingReviews[targetDay].push(subject);
         }
     };
 
-    // 5. Loop Principal (Dia a Dia)
+    // 4. Loop Principal (Dia a Dia)
     const limitDay = targetDayOnly || daysInMonth;
 
     for (let day = 1; day <= limitDay; day++) {
@@ -130,63 +122,61 @@ export const generateMonthlySchedule = (
         const currentDayOfWeek = currentDateObj.getDay();
         const isDayActive = settings.activeWeekDays.includes(currentDayOfWeek);
         
-        // Comparação robusta de datas (String vs String)
+        // Determina se é passado (histórico estático)
         const isPastDate = currentDateStr < todayStr;
 
         const dailyItems: ScheduleItem[] = [];
+        const subjectsStudiedToday = new Set<string>();
 
-        // =================================================================================
-        // RAMIFICAÇÃO A: PROCESSAR PASSADO (Baseado em LOGS REAIS e ESTADO ATUAL)
-        // =================================================================================
-        if (isPastDate) {
-            // Procura logs reais para este dia
-            activeSubjects.forEach(sub => {
-                if (sub.logs) {
-                    sub.logs.forEach(log => {
-                        const logDateStr = getLocalDateString(new Date(log.date));
+        // -------------------------------------------------------------------------
+        // ETAPA A: PROCESSAR LOGS REAIS (Passado E Presente)
+        // Isso garante que se você estudou HOJE, a revisão é agendada para o futuro IMEDIATAMENTE.
+        // -------------------------------------------------------------------------
+        activeSubjects.forEach(sub => {
+            if (sub.logs) {
+                sub.logs.forEach(log => {
+                    const logDateStr = getLocalDateString(new Date(log.date));
+                    
+                    if (logDateStr === currentDateStr) {
+                        const realTopic = sub.topics.find(t => t.id === log.topicId);
+                        const displayTopic = realTopic || { id: 'unknown', name: log.topicName, completed: true };
                         
-                        if (logDateStr === currentDateStr) {
-                            // Busca o tópico REAL na lista atual de tópicos da matéria
-                            const realTopic = sub.topics.find(t => t.id === log.topicId);
-                            
-                            // Objeto de exibição
-                            const displayTopic = realTopic || { id: 'unknown', name: log.topicName, completed: true };
-                            
-                            // Adiciona item histórico ao agendamento
-                            dailyItems.push({
-                                subject: sub,
-                                type: 'THEORY', // Logs passados contam como estudo realizado
-                                topic: displayTopic as Topic,
-                                durationMinutes: log.durationMinutes
+                        dailyItems.push({
+                            subject: sub,
+                            type: 'THEORY', // Logs contam como execução
+                            topic: displayTopic as Topic,
+                            durationMinutes: log.durationMinutes
+                        });
+                        subjectsStudiedToday.add(sub.id);
+
+                        // TRIGGER DO SRS: Só agenda se o tópico foi REALMENTE completado
+                        if (useSRS && realTopic && realTopic.completed) {
+                            const intervals = getReviewIntervals(sub);
+                            intervals.forEach(interval => {
+                                const reviewDay = day + interval;
+                                // Adiciona na fila de revisões futuras
+                                if (reviewDay <= daysInMonth + 60) addReview(reviewDay, sub);
                             });
-
-                            // CRÍTICO: O estudo passado GERA revisões futuras APENAS SE:
-                            // 1. SRS está Ativo (useSRS)
-                            // 2. O tópico existe na disciplina
-                            // 3. O tópico está marcado como COMPLETED (garante integridade se usuário desmarcou)
-                            if (useSRS && realTopic && realTopic.completed) {
-                                const intervals = getReviewIntervals(sub);
-                                intervals.forEach(interval => {
-                                    if (day + interval <= daysInMonth + 45) addReview(day + interval, sub);
-                                });
-                            }
                         }
-                    });
-                }
-            });
+                    }
+                });
+            }
+        });
 
-            // Se não houver logs no passado, não geramos nada.
+        // Se for passado, paramos aqui (apenas mostramos o que foi feito)
+        if (isPastDate) {
             schedule[day] = dailyItems.length > 0 ? dailyItems : [];
             continue; 
         }
 
-        // =================================================================================
-        // RAMIFICAÇÃO B: SIMULAR FUTURO (Baseado em ALGORITMO)
-        // =================================================================================
+        // -------------------------------------------------------------------------
+        // ETAPA B: SIMULAÇÃO (Apenas Hoje e Futuro)
+        // Preenche o restante do tempo com Revisões Pendentes e Teoria Nova
+        // -------------------------------------------------------------------------
         
         if (!isDayActive) {
             schedule[day] = null;
-            // Mesmo no dia de folga, empurra revisões pendentes APENAS se SRS ativo
+            // Empurra revisões pendentes para o próximo dia útil
             if (useSRS && pendingReviews[day]) {
                 const nextDay = day + 1;
                 if (!pendingReviews[nextDay]) pendingReviews[nextDay] = [];
@@ -197,15 +187,22 @@ export const generateMonthlySchedule = (
             continue;
         }
 
-        // 1. Processar Revisões Pendentes (Geradas EXCLUSIVAMENTE por Tópicos Já Concluídos)
+        // 1. Adicionar Revisões Pendentes (SRS)
         if (useSRS && pendingReviews[day]) {
             pendingReviews[day].forEach(revSub => {
-                dailyItems.push({ subject: revSub, type: 'REVIEW' });
+                // Evita duplicata: Se eu já estudei a matéria hoje (log real), não mostra revisão de novo
+                if (!subjectsStudiedToday.has(revSub.id)) {
+                    dailyItems.push({ subject: revSub, type: 'REVIEW' });
+                }
             });
         }
 
-        // 2. Preencher Vagas com Teoria (Simulação)
-        let slotsForTheory = settings.subjectsPerDay - dailyItems.length;
+        // 2. Preencher Vagas com Teoria Nova (Simulação)
+        // Conta quantos slots ainda temos baseados na configuração de matérias por dia
+        let slotsForTheory = settings.subjectsPerDay - dailyItems.filter(i => i.type === 'THEORY').length; 
+        // Nota: Revisões não consomem slots de 'Matérias Novas', elas são adicionais ou prioritárias.
+        // Se quiser que revisões consumam o tempo, o limite é pelo tempo total abaixo.
+        
         if (slotsForTheory < 0) slotsForTheory = 0;
 
         for (let i = 0; i < slotsForTheory; i++) {
@@ -222,32 +219,22 @@ export const generateMonthlySchedule = (
 
                 dailyItems.push({ subject: selectedSubject, type: 'THEORY', topic: topic });
 
-                // MUDANÇA CRÍTICA: NÃO AGENDAR REVISÃO PARA TEORIA SIMULADA/FUTURA.
-                // Isso garante que revisões só apareçam para tópicos que o usuário JÁ marcou como concluído.
-                // O agendamento se torna REATIVO (Concluiu -> Agendou) e não PREDITIVO (Agendou Teoria -> Agendou Revisão).
-                
-                /* 
-                // CÓDIGO ANTIGO REMOVIDO PARA EVITAR REVISÕES FANTASMAS
-                if (useSRS) {
-                    const intervals = getReviewIntervals(selectedSubject);
-                    intervals.forEach(interval => {
-                        if (day + interval <= daysInMonth + 30) addReview(day + interval, selectedSubject);
-                    });
-                }
-                */
-
+                // AQUI ESTÁ A MUDANÇA: NÃO AGENDAMOS REVISÃO PARA TEORIA SIMULADA.
+                // A revisão só será agendada quando este dia se tornar "Passado/Hoje" e houver um Log Real confirmando a conclusão.
             } else {
-                // Fim dos tópicos (Revisão Geral ou Estudo Livre)
+                // Fim dos tópicos
                 dailyItems.push({ subject: selectedSubject, type: 'THEORY' }); 
             }
         }
 
-        // 3. Distribuir Tempo
+        // 3. Distribuir Tempo (Calcula minutos apenas para itens simulados ou sem tempo definido)
         if (dailyItems.length > 0) {
             const totalWeight = dailyItems.reduce((acc, item) => acc + (item.type === 'REVIEW' ? 1 : 2), 0);
             dailyItems.forEach(item => {
-                const weight = item.type === 'REVIEW' ? 1 : 2;
-                item.durationMinutes = Math.round((weight / totalWeight) * dailyTimeMinutes);
+                if (!item.durationMinutes) { // Mantém duração real se vier de Log
+                    const weight = item.type === 'REVIEW' ? 1 : 2;
+                    item.durationMinutes = Math.round((weight / totalWeight) * dailyTimeMinutes);
+                }
             });
         }
 
