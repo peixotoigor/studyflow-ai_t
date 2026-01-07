@@ -512,14 +512,14 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                 </div>
             </div>
 
-            {/* SEÇÃO 1: RADAR DE ATENÇÃO DINÂMICO */}
+            {/* SEÇÃO 1: RADAR DE ATENÇÃO DINÂMICO (GRID MODE) */}
             <div className="flex flex-col gap-4">
                  <h3 className="text-lg font-bold text-slate-900 dark:text-white flex items-center gap-2">
                     <span className="material-symbols-outlined text-red-500 animate-pulse">crisis_alert</span>
                     Radar de Atenção
                 </h3>
                 <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-                    <div className="lg:col-span-2 bg-[#0c0c1d] dark:bg-[#0c0c1d] rounded-xl border border-red-900/30 shadow-lg p-5 relative overflow-hidden group">
+                    <div className="lg:col-span-2 bg-[#0c0c1d] dark:bg-[#0c0c1d] rounded-xl border border-red-900/30 shadow-lg p-5 relative overflow-hidden group min-h-[300px]">
                         
                         {/* Efeito Scanner (Radar Sweep) */}
                         <div className="absolute inset-0 bg-gradient-to-b from-transparent via-red-500/5 to-transparent h-[50%] w-full animate-scan pointer-events-none z-0"></div>
@@ -530,9 +530,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                             <div className="size-2 bg-red-500 rounded-full animate-ping"></div>
                         </div>
 
-                        <div className="relative z-10">
+                        <div className="relative z-10 h-full flex flex-col">
                             {data.attentionRanking.length === 0 ? (
-                                <div className="p-8 flex flex-col items-center justify-center text-center">
+                                <div className="flex-1 flex flex-col items-center justify-center text-center p-8">
                                     <div className="size-16 rounded-full bg-green-500/10 flex items-center justify-center mb-4">
                                         <span className="material-symbols-outlined text-3xl text-green-500">verified_user</span>
                                     </div>
@@ -540,45 +540,46 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                                     <p className="text-slate-500 text-sm mt-1">Nenhuma anomalia de desempenho detectada.</p>
                                 </div>
                             ) : (
-                                <div className="flex flex-col gap-4">
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 mt-6">
                                     {data.attentionRanking.map((sub, idx) => {
                                         // Cálculo de Nível de Ameaça (Visual)
                                         const threatLevel = Math.min(100, sub.urgencyScore * 2); 
                                         
                                         return (
-                                            <div key={sub.id} className="relative bg-[#15152a]/80 backdrop-blur-sm border-l-4 border-red-500 rounded-r-lg p-4 hover:bg-[#1a1a35] transition-all group/item">
-                                                <div className="flex justify-between items-start mb-2">
-                                                    <div>
-                                                        <h4 className="font-bold text-white text-lg tracking-tight">{sub.name}</h4>
-                                                        <div className="flex items-center gap-3 text-xs text-slate-400 mt-1">
+                                            <div key={sub.id} className="relative bg-[#15152a]/80 backdrop-blur-sm border-l-4 border-red-500 rounded-r-lg p-3 hover:bg-[#1a1a35] transition-all group/item flex flex-col justify-between h-full min-h-[110px]">
+                                                <div className="flex justify-between items-start mb-2 gap-2">
+                                                    <div className="min-w-0">
+                                                        <h4 className="font-bold text-white text-sm md:text-base tracking-tight truncate" title={sub.name}>{sub.name}</h4>
+                                                        <div className="flex flex-col gap-0.5 text-[10px] text-slate-400 mt-1">
                                                             {sub.explicitErrors > 0 && (
                                                                 <span className="flex items-center gap-1 text-red-400 font-bold">
-                                                                    <span className="material-symbols-outlined text-[14px]">warning</span>
-                                                                    {sub.explicitErrors} Erros Críticos
+                                                                    <span className="material-symbols-outlined text-[12px]">warning</span>
+                                                                    {sub.explicitErrors} Erros
                                                                 </span>
                                                             )}
                                                             <span className="flex items-center gap-1">
-                                                                <span className="material-symbols-outlined text-[14px]">history</span>
-                                                                {typeof sub.daysSinceLastStudy === 'number' ? `${sub.daysSinceLastStudy}d s/ ver` : 'Nunca estudado'}
+                                                                <span className="material-symbols-outlined text-[12px]">history</span>
+                                                                {typeof sub.daysSinceLastStudy === 'number' ? `${sub.daysSinceLastStudy}d off` : 'Nunca'}
                                                             </span>
                                                         </div>
                                                     </div>
-                                                    <div className="text-right">
-                                                        <span className="text-2xl font-black text-red-500">{100 - sub.accuracy}%</span>
-                                                        <p className="text-[9px] uppercase text-red-500/70 font-bold">Taxa de Erro</p>
+                                                    <div className="text-right shrink-0">
+                                                        <span className="text-xl font-black text-red-500">{100 - sub.accuracy}%</span>
+                                                        <p className="text-[8px] uppercase text-red-500/70 font-bold">Erro</p>
                                                     </div>
                                                 </div>
                                                 
-                                                {/* Threat Bar */}
-                                                <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden mt-2 relative">
-                                                    <div 
-                                                        className="h-full bg-gradient-to-r from-orange-500 to-red-600 shadow-[0_0_10px_rgba(239,68,68,0.5)]" 
-                                                        style={{ width: `${threatLevel}%` }}
-                                                    ></div>
-                                                </div>
-                                                <div className="flex justify-between mt-1">
-                                                    <span className="text-[9px] font-mono text-slate-500 uppercase">Nível de Prioridade</span>
-                                                    <span className="text-[9px] font-mono text-red-400 font-bold">{threatLevel > 80 ? 'CRÍTICO' : 'ALTO'}</span>
+                                                <div>
+                                                    <div className="w-full h-1 bg-slate-800 rounded-full overflow-hidden mt-2 relative">
+                                                        <div 
+                                                            className="h-full bg-gradient-to-r from-orange-500 to-red-600 shadow-[0_0_10px_rgba(239,68,68,0.5)]" 
+                                                            style={{ width: `${threatLevel}%` }}
+                                                        ></div>
+                                                    </div>
+                                                    <div className="flex justify-between mt-1">
+                                                        <span className="text-[8px] font-mono text-slate-500 uppercase">Prioridade</span>
+                                                        <span className="text-[8px] font-mono text-red-400 font-bold">{threatLevel > 80 ? 'CRÍTICO' : 'ALTO'}</span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         );
