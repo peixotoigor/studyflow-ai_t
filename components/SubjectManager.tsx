@@ -8,7 +8,7 @@ interface SubjectManagerProps {
     plans?: StudyPlan[];
     onImportFromPlan?: (sourcePlanId: string, subjectIdsToCopy: string[]) => void;
     onDeleteSubject?: (id: string) => void;
-    onBulkDeleteSubjects?: (ids: string[]) => void; // Nova prop para exclusão em massa segura
+    onBulkDeleteSubjects?: (ids: string[]) => void;
     onAddSubject?: (name: string, weight?: number, color?: string) => void;
     onToggleStatus?: (id: string) => void;
     onAddTopic?: (subjectId: string, name: string) => void;
@@ -57,6 +57,7 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     });
 
     const [activeTab, setActiveTab] = useState<'TOPICS' | 'HISTORY'>('TOPICS');
+    const [viewMode, setViewMode] = useState<'ACTIVE' | 'ARCHIVED'>('ACTIVE'); // Novo estado para controlar a visualização
     const [newTopicInput, setNewTopicInput] = useState<string>('');
     const [searchTerm, setSearchTerm] = useState('');
     
@@ -131,6 +132,17 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
         setActiveTab('TOPICS');
     };
 
+    // Filter Logic baseada no ViewMode
+    const filteredSubjects = subjects.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()));
+    
+    // Lista exibida depende da aba selecionada
+    const displayedSubjects = filteredSubjects.filter(s => 
+        viewMode === 'ACTIVE' ? s.active : !s.active
+    );
+
+    // Importable logic
+    const importableSubjects = sourcePlanId ? allSubjects.filter(s => s.planId === sourcePlanId) : [];
+
     // --- Bulk Selection Handlers ---
     const toggleSelection = (id: string) => {
         const newSet = new Set(selectedSubjectIds);
@@ -140,11 +152,12 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     };
 
     const selectAll = () => {
-        if (selectedSubjectIds.size === activeSubjects.length) setSelectedSubjectIds(new Set());
-        else setSelectedSubjectIds(new Set(activeSubjects.map(s => s.id)));
+        if (selectedSubjectIds.size === displayedSubjects.length) setSelectedSubjectIds(new Set());
+        else setSelectedSubjectIds(new Set(displayedSubjects.map(s => s.id)));
     };
 
-    const handleBulkArchive = () => {
+    // Ação inteligente: Se estiver em Ativas, arquiva. Se em Arquivadas, restaura.
+    const handleBulkToggleStatus = () => {
         if (selectedSubjectIds.size === 0 || !onToggleStatus) return;
         selectedSubjectIds.forEach(id => onToggleStatus(id));
         setSelectedSubjectIds(new Set());
@@ -153,15 +166,14 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     const handleBulkDelete = () => {
         if (selectedSubjectIds.size === 0) return;
         
-        // 1. Guardar backup para Undo (Cópia profunda simples para evitar referência)
+        // 1. Guardar backup para Undo
         const subjectsToDelete = subjects.filter(s => selectedSubjectIds.has(s.id));
         setLastDeletedBatch(subjectsToDelete);
 
-        // 2. Excluir de fato (Usa método em massa se disponível, senão fallback)
+        // 2. Excluir de fato
         if (onBulkDeleteSubjects) {
             onBulkDeleteSubjects(Array.from(selectedSubjectIds));
         } else {
-            // Fallback perigoso (causa múltiplos prompts se não tratado no pai)
             subjectsToDelete.forEach(s => onDeleteSubject && onDeleteSubject(s.id));
         }
 
@@ -223,9 +235,6 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
         }
     };
 
-    // Import, AI, Topic Editing, Drag/Drop handlers omitidos para brevidade (mantém lógica original)
-    // ... [Mantenha o código original das funções handleTopicKeyDown, handleAiProcess, handleDrop, etc] ...
-    
     // --- Topic Editing Handlers ---
     const startEditingTopic = (topic: Topic) => { setEditingTopicId(topic.id); setEditingTopicName(topic.name); };
     const cancelEditingTopic = () => { setEditingTopicId(null); setEditingTopicName(''); };
@@ -324,11 +333,6 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
             setSelectedImportSubjects(new Set());
         }
     };
-
-    // Filter
-    const filteredSubjects = subjects.filter(s => s.name.toLowerCase().includes(searchTerm.toLowerCase()));
-    const activeSubjects = filteredSubjects.filter(s => s.active);
-    const importableSubjects = sourcePlanId ? allSubjects.filter(s => s.planId === sourcePlanId) : [];
 
     const openEditSubjectModal = (e: React.MouseEvent, subject: Subject) => {
         e.stopPropagation();
@@ -440,31 +444,61 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                 <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar relative">
                     <div className="max-w-[1600px] mx-auto flex flex-col gap-8 pb-20">
                         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-                            <h1 className="text-3xl md:text-4xl font-black text-text-primary-light dark:text-text-primary-dark">Configuração do Ciclo</h1>
-                            <div className="flex gap-2">
-                                <button onClick={selectAll} className="text-xs font-bold text-primary px-3 hover:bg-primary/5 rounded">
-                                    {selectedSubjectIds.size === activeSubjects.length ? 'Desmarcar Todas' : 'Selecionar Todas'}
+                            <div className="flex flex-col gap-1">
+                                <h1 className="text-3xl md:text-4xl font-black text-text-primary-light dark:text-text-primary-dark">Configuração do Ciclo</h1>
+                                <p className="text-sm text-text-secondary-light dark:text-text-secondary-dark">Gerencie suas disciplinas e conteúdo programático.</p>
+                            </div>
+                            
+                            <div className="flex flex-wrap gap-2 items-center">
+                                {/* Toggle Ativas/Arquivadas */}
+                                <div className="flex bg-gray-200 dark:bg-gray-800 p-1 rounded-lg">
+                                    <button 
+                                        onClick={() => { setViewMode('ACTIVE'); setSelectedSubjectIds(new Set()); }}
+                                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${viewMode === 'ACTIVE' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
+                                    >
+                                        Ativas
+                                    </button>
+                                    <button 
+                                        onClick={() => { setViewMode('ARCHIVED'); setSelectedSubjectIds(new Set()); }}
+                                        className={`px-3 py-1.5 text-xs font-bold rounded-md transition-all ${viewMode === 'ARCHIVED' ? 'bg-white dark:bg-gray-700 shadow-sm text-primary' : 'text-gray-500 dark:text-gray-400 hover:text-gray-700'}`}
+                                    >
+                                        Arquivadas
+                                    </button>
+                                </div>
+
+                                <div className="h-8 w-px bg-gray-300 dark:bg-gray-700 mx-2 hidden md:block"></div>
+
+                                <button onClick={selectAll} className="text-xs font-bold text-primary px-3 hover:bg-primary/5 rounded h-10">
+                                    {selectedSubjectIds.size === displayedSubjects.length && displayedSubjects.length > 0 ? 'Desmarcar' : 'Selecionar Tudo'}
                                 </button>
+                                
                                 {plans.length > 1 && (
-                                    <button onClick={() => setIsImporting(true)} className="flex items-center gap-2 h-11 px-4 bg-white dark:bg-card-dark border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
+                                    <button onClick={() => setIsImporting(true)} className="flex items-center gap-2 h-10 px-4 bg-white dark:bg-card-dark border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
                                         <span className="material-symbols-outlined text-[18px]">input</span><span className="hidden sm:inline">Importar</span>
                                     </button>
                                 )}
-                                <button onClick={() => setIsCreatingSubject(true)} className="flex items-center gap-2 h-11 px-5 bg-primary text-white font-bold rounded-lg shadow-lg hover:bg-blue-700 transition-all"><span className="material-symbols-outlined">add</span> Nova Disciplina</button>
+                                <button onClick={() => setIsCreatingSubject(true)} className="flex items-center gap-2 h-10 px-5 bg-primary text-white font-bold rounded-lg shadow-lg hover:bg-blue-700 transition-all"><span className="material-symbols-outlined">add</span> Nova</button>
                             </div>
                         </div>
 
-                        {activeSubjects.length > 0 ? (
+                        {displayedSubjects.length > 0 ? (
                             <div className="flex flex-col gap-4">
-                                <h2 className="text-sm font-bold uppercase tracking-wider text-primary">No Plano de Estudos</h2>
+                                <h2 className="text-sm font-bold uppercase tracking-wider text-primary">
+                                    {viewMode === 'ACTIVE' ? 'No Plano de Estudos' : 'Disciplinas Arquivadas (Inativas)'}
+                                </h2>
                                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
-                                    {activeSubjects.map(subject => {
+                                    {displayedSubjects.map(subject => {
                                         const subjectColorClass = subject.color ? `text-${subject.color}-600 dark:text-${subject.color}-400` : 'text-primary';
                                         const subjectBgClass = subject.color ? `bg-${subject.color}-100 dark:bg-${subject.color}-900/30` : 'bg-primary/10';
                                         const isSelected = selectedSubjectIds.has(subject.id);
+                                        const isArchived = !subject.active;
                                         
                                         return (
-                                            <div key={subject.id} onClick={() => toggleExpand(subject.id)} className={`group bg-card-light dark:bg-card-dark rounded-xl border p-4 hover:border-primary/50 hover:shadow-md transition-all cursor-pointer relative flex flex-col justify-between h-[140px] ${isSelected ? 'border-primary ring-1 ring-primary/30' : 'border-border-light dark:border-border-dark'}`}>
+                                            <div 
+                                                key={subject.id} 
+                                                onClick={() => toggleExpand(subject.id)} 
+                                                className={`group bg-card-light dark:bg-card-dark rounded-xl border p-4 hover:border-primary/50 hover:shadow-md transition-all cursor-pointer relative flex flex-col justify-between h-[140px] ${isSelected ? 'border-primary ring-1 ring-primary/30' : 'border-border-light dark:border-border-dark'} ${isArchived ? 'opacity-80 grayscale-[0.5] hover:grayscale-0' : ''}`}
+                                            >
                                                 <div className="absolute top-2 left-2 z-10" onClick={(e) => { e.stopPropagation(); toggleSelection(subject.id); }}>
                                                     <div className={`size-5 rounded border flex items-center justify-center transition-colors ${isSelected ? 'bg-primary border-primary' : 'bg-white/80 dark:bg-black/50 border-gray-300 dark:border-gray-600 hover:border-primary'}`}>
                                                         {isSelected && <span className="material-symbols-outlined text-white text-[14px]">check</span>}
@@ -483,7 +517,9 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                                                     <p className="text-xs text-text-secondary-light dark:text-text-secondary-dark">{subject.topics.length} Tópicos</p>
                                                 </div>
                                                 <div className="absolute top-2 right-2 flex gap-1">
-                                                    <button onClick={(e) => openAiModalForSubject(e, subject.id)} className="p-1 rounded bg-white/80 dark:bg-black/50 hover:bg-purple-100 dark:hover:bg-purple-900 text-slate-500 hover:text-purple-600 transition-colors shadow-sm opacity-0 group-hover:opacity-100" title="IA"><span className="material-symbols-outlined text-[16px]">auto_fix</span></button>
+                                                    {!isArchived && (
+                                                        <button onClick={(e) => openAiModalForSubject(e, subject.id)} className="p-1 rounded bg-white/80 dark:bg-black/50 hover:bg-purple-100 dark:hover:bg-purple-900 text-slate-500 hover:text-purple-600 transition-colors shadow-sm opacity-0 group-hover:opacity-100" title="IA"><span className="material-symbols-outlined text-[16px]">auto_fix</span></button>
+                                                    )}
                                                     <button onClick={(e) => openEditSubjectModal(e, subject)} className="p-1 rounded bg-white/80 dark:bg-black/50 hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-500 hover:text-blue-600 transition-colors shadow-sm opacity-0 group-hover:opacity-100" title="Editar"><span className="material-symbols-outlined text-[16px]">edit</span></button>
                                                 </div>
                                             </div>
@@ -493,18 +529,29 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                             </div>
                         ) : (
                             <div className="text-center py-20 text-gray-400">
-                                <span className="material-symbols-outlined text-6xl mb-4">layers_clear</span>
-                                <p className="text-lg">Nenhuma disciplina neste plano.</p>
+                                <span className="material-symbols-outlined text-6xl mb-4">{viewMode === 'ACTIVE' ? 'layers_clear' : 'inventory_2'}</span>
+                                <p className="text-lg">{viewMode === 'ACTIVE' ? 'Nenhuma disciplina ativa.' : 'Nenhuma disciplina arquivada.'}</p>
+                                {viewMode === 'ACTIVE' && <p className="text-sm">Crie uma nova ou verifique as arquivadas.</p>}
                             </div>
                         )}
                     </div>
 
+                    {/* Barra de Ações em Massa Inteligente */}
                     {selectedSubjectIds.size > 0 && (
                         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-2 rounded-xl shadow-2xl z-40 flex items-center gap-2 animate-in slide-in-from-bottom-4">
                             <span className="px-3 text-xs font-bold bg-white/10 rounded-lg py-1.5">{selectedSubjectIds.size} selecionadas</span>
                             <div className="h-6 w-px bg-white/20"></div>
-                            <button onClick={handleBulkArchive} className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-white/10 rounded-lg transition-colors text-xs font-bold text-slate-300 hover:text-white"><span className="material-symbols-outlined text-sm">archive</span> Arquivar</button>
-                            <button onClick={() => setIsBulkWeightModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-white/10 rounded-lg transition-colors text-xs font-bold text-slate-300 hover:text-white"><span className="material-symbols-outlined text-sm">monitor_weight</span> Peso</button>
+                            
+                            {/* Botão de Toggle Status (Arquivar/Restaurar) */}
+                            <button onClick={handleBulkToggleStatus} className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg transition-colors text-xs font-bold ${viewMode === 'ACTIVE' ? 'hover:bg-white/10 text-slate-300 hover:text-white' : 'hover:bg-green-500/20 text-green-300 hover:text-green-200'}`}>
+                                <span className="material-symbols-outlined text-sm">{viewMode === 'ACTIVE' ? 'archive' : 'unarchive'}</span>
+                                {viewMode === 'ACTIVE' ? 'Arquivar' : 'Restaurar'}
+                            </button>
+
+                            {viewMode === 'ACTIVE' && (
+                                <button onClick={() => setIsBulkWeightModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-white/10 rounded-lg transition-colors text-xs font-bold text-slate-300 hover:text-white"><span className="material-symbols-outlined text-sm">monitor_weight</span> Peso</button>
+                            )}
+                            
                             <button onClick={handleBulkDelete} className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-red-500/20 text-red-300 hover:text-red-200 rounded-lg transition-colors text-xs font-bold"><span className="material-symbols-outlined text-sm">delete</span> Excluir</button>
                             <button onClick={() => setSelectedSubjectIds(new Set())} className="ml-2 p-1 hover:bg-white/10 rounded-full"><span className="material-symbols-outlined text-sm">close</span></button>
                         </div>
