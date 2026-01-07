@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AiTutorChat } from './AiTutorChat';
 import { Subject, ScheduleItem, Topic, StudyModality, Screen, ErrorLog } from '../types';
@@ -116,68 +117,63 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         return schedule[todayDay] || [];
     };
 
-    // --- EFFECT PRINCIPAL: INICIALIZAÇÃO E SINCRONIZAÇÃO ---
+    // --- EFFECT PRINCIPAL: INICIALIZAÇÃO E SINCRONIZAÇÃO INTELIGENTE ---
     useEffect(() => {
-        // 1. Calcular a fila REAL para hoje com as configurações atuais
+        // 1. Calcular a fila REAL para hoje com as configurações mais recentes
         const freshQueue = calculateDailyQueue();
         const todayStr = getLocalDateString(new Date());
         
-        // Lógica: Sempre usamos a fila fresca do Scheduler para garantir que "Fila de Hoje" == "Plano de Estudos".
-        // O scheduler já sabe o que foi feito (Logs) e o que falta (Simulação).
         setTodaysQueue(freshQueue);
 
-        // 2. Determinar onde o usuário parou (Índice)
-        // Tentamos restaurar o índice, mas validamos se ele ainda faz sentido na nova fila
         try {
             const savedState = localStorage.getItem('studyflow_player_state');
-            let restoredIndex = -1;
+            let targetIndex = 0;
+            let restoredTimer = false;
 
             if (savedState) {
                 const parsed: PersistedPlayerState = JSON.parse(savedState);
                 if (parsed.date === todayStr) {
-                    restoredIndex = parsed.currentItemIndex;
-                    // Restaura timer apenas se não mudou de item drasticamente
-                    if (freshQueue[restoredIndex]?.subject.id === parsed.todaysQueue[parsed.currentItemIndex]?.subject.id) {
-                        setTimeLeft(parsed.timeLeft);
-                        setInitialTime(parsed.initialTime);
-                        setElapsedTime(parsed.elapsedTime);
+                    // Verifica se o índice salvo ainda é válido na nova fila
+                    if (parsed.currentItemIndex < freshQueue.length) {
+                        targetIndex = parsed.currentItemIndex;
+                        
+                        // LÓGICA ROBUSTA DE TEMPO:
+                        // Só restauramos o tempo do cache se o usuário já tiver progresso na sessão (elapsedTime > 0).
+                        // Se ele ainda não começou (elapsedTime === 0), nós IGNORAMOS o cache e usamos o tempo
+                        // calculado pelo freshQueue. Isso garante que se o usuário mudar a meta de horas,
+                        // o timer atualize para o novo valor correto, em vez de ficar preso no valor antigo.
+                        const sameSubject = freshQueue[targetIndex]?.subject.id === parsed.todaysQueue[parsed.currentItemIndex]?.subject.id;
+                        
+                        if (parsed.elapsedTime > 0 && sameSubject) {
+                            setTimeLeft(parsed.timeLeft);
+                            setInitialTime(parsed.initialTime);
+                            setElapsedTime(parsed.elapsedTime);
+                            restoredTimer = true;
+                        }
                     }
                 }
             }
 
-            // Se não conseguimos restaurar ou se a fila mudou, procuramos o primeiro item NÃO REALIZADO
-            // O Scheduler retorna itens "THEORY" com "durationMinutes" preenchido se vierem de Logs (Passado).
-            // Porém, para diferenciar "Feito" de "A Fazer" no mesmo dia, olhamos se tem um Log correspondente.
-            if (restoredIndex === -1 || restoredIndex >= freshQueue.length) {
-                // Encontrar o primeiro item que é puramente simulado (não tem log associado ou log é antigo)
-                // Simplificação: Itens simulados pelo scheduler HOJE não possuem log "real" atrelado da mesma forma que logs históricos.
-                // Mas o scheduler.ts unifica tudo como 'THEORY'. 
-                // A melhor forma de achar o "próximo" é ver quantos minutos já foram contabilizados na fila.
+            setCurrentItemIndex(targetIndex);
+
+            // Se não restauramos um timer em andamento, aplicamos estritamente o tempo do Scheduler
+            if (!restoredTimer && freshQueue.length > 0) {
+                const itemDuration = freshQueue[targetIndex]?.durationMinutes || 25; // Pega duração do item alvo
+                const durationInSeconds = itemDuration * 60;
                 
-                // Estratégia: O scheduler coloca logs realizados (Branch A) antes dos simulados (Branch B).
-                // Então o índice deve ser o número de itens que JÁ SÃO logs de hoje.
-                
-                let completedCount = 0;
-                // Conta quantos itens na fila correspondem a logs que já existem no subject
-                // (Isso é uma heurística, pois o scheduler pode agrupar logs)
-                // Melhor abordagem: Verificar o tipo ou se o item já foi "visto".
-                // Como não temos um flag "done" no ScheduleItem, assumimos que o usuário segue a ordem.
-                
-                // Reset seguro: Começa do 0 se não tiver salvo
-                setCurrentItemIndex(0); 
-                
-                // Se for o primeiro load do dia, seta o tempo do primeiro item
-                if (freshQueue.length > 0) {
-                    const duration = (freshQueue[0].durationMinutes || 25) * 60;
-                    setTimeLeft(duration);
-                    setInitialTime(duration);
-                }
-            } else {
-                setCurrentItemIndex(restoredIndex);
+                setTimeLeft(durationInSeconds);
+                setInitialTime(durationInSeconds);
+                setElapsedTime(0);
             }
 
         } catch (e) {
             console.error("Erro ao sincronizar player:", e);
+            // Fallback seguro
+            if (freshQueue.length > 0) {
+                const duration = (freshQueue[0].durationMinutes || 25) * 60;
+                setTimeLeft(duration);
+                setInitialTime(duration);
+            }
         }
 
     }, [subjects, dailyAvailableTime, errorLogs]); 
@@ -280,7 +276,9 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         // 2. Avança para o próximo item
         if (currentItemIndex < todaysQueue.length - 1) {
             const nextIndex = currentItemIndex + 1;
-            // Pega o tempo do próximo item da fila atual (que será atualizada em breve, mas o indice +1 é seguro)
+            // Pega o tempo do próximo item da fila ATUAL
+            // Nota: O useEffect vai rodar logo em seguida quando 'subjects' mudar, 
+            // mas definir aqui garante transição suave visualmente.
             const nextDur = (todaysQueue[nextIndex]?.durationMinutes || 25) * 60;
             
             setCurrentItemIndex(nextIndex);
