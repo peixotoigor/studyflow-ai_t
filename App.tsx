@@ -547,13 +547,26 @@ function App() {
   const handleAddSavedNote = (content: string, sName: string, tName: string) => setSavedNotes(prev => [{ id: Date.now().toString(), content, subjectName: sName, topicName: tName, createdAt: new Date() }, ...prev]);
   const handleDeleteSavedNote = (id: string) => { if(window.confirm("Apagar?")) setSavedNotes(prev => prev.filter(n => n.id !== id)); };
   
-  const handleImportSubjects = (newSubjects: Subject[]) => {
-      setSubjects(prev => [...prev, ...newSubjects.map(s => ({ ...s, planId: currentPlanId }))]);
+  // Função para RESTAURAR e IMPORTAR (Atualizada para evitar duplicatas - Fix WSOD)
+  const handleRestoreSubjects = (newSubjects: Subject[]) => {
+      setSubjects(prev => {
+          const existingIds = new Set(prev.map(s => s.id));
+          // Filtra apenas as que ainda não existem no estado atual
+          const uniqueNew = newSubjects.filter(s => !existingIds.has(s.id)).map(s => ({ ...s, planId: currentPlanId }));
+          return [...prev, ...uniqueNew];
+      });
       setCurrentScreen(Screen.SUBJECTS);
-      setImporterState(prev => ({ ...prev, step: 'SUCCESS' })); // Mantém estado ou reseta se preferir
+      setImporterState(prev => ({ ...prev, step: 'SUCCESS' })); 
   };
   
   const handleDeleteSubject = (id: string) => { if(window.confirm("Apagar disciplina?")) setSubjects(prev => prev.filter(s => s.id !== id)); };
+  
+  // Nova função para deletar em massa SEM confirmar (pois a UI já confirmou ou é reversível)
+  const handleBulkDeleteSubjects = (ids: string[]) => {
+      const idsSet = new Set(ids);
+      setSubjects(prev => prev.filter(s => !idsSet.has(s.id)));
+  };
+
   const handleToggleSubjectStatus = (id: string) => setSubjects(prev => prev.map(s => s.id === id ? { ...s, active: !s.active } : s));
   
   const handleAddManualSubject = (name: string, weight?: number, manualColor?: string) => {
@@ -747,6 +760,7 @@ function App() {
                                         plans={plans}
                                         onImportFromPlan={handleImportSubjectsFromPlan}
                                         onDeleteSubject={handleDeleteSubject} 
+                                        onBulkDeleteSubjects={handleBulkDeleteSubjects} // Passando nova função
                                         onAddSubject={handleAddManualSubject} 
                                         onToggleStatus={handleToggleSubjectStatus} 
                                         onAddTopic={handleAddTopic} 
@@ -757,7 +771,7 @@ function App() {
                                         onUpdateLog={handleUpdateLog}
                                         onDeleteLog={handleDeleteSubjectLog}
                                         onToggleTopicCompletion={handleToggleTopicCompletion} 
-                                        onRestoreSubjects={handleImportSubjects} // Passando a função para restaurar (mesma lógica de importação)
+                                        onRestoreSubjects={handleRestoreSubjects} // Atualizado com lógica segura
                                         apiKey={user.openAiApiKey} 
                                         model={user.openAiModel} 
                                     />;
@@ -765,7 +779,7 @@ function App() {
       case Screen.IMPORTER: return <Importer 
                                       apiKey={user.openAiApiKey} 
                                       model={user.openAiModel} 
-                                      onImport={handleImportSubjects} 
+                                      onImport={handleRestoreSubjects} 
                                       state={importerState} 
                                       setState={setImporterState} 
                                    />;
