@@ -11,8 +11,16 @@ interface StudyPlayerProps {
     onSessionComplete?: (subjectId: string, topicId: string, duration: number, questions: number, correct: number, isFinished: boolean, modalities: StudyModality[]) => void;
     onNavigate?: (screen: Screen) => void;
     onSaveNote?: (content: string, subject: string, topic: string) => void;
-    errorLogs?: ErrorLog[]; // Novo prop para sync de SRS
+    errorLogs?: ErrorLog[]; 
 }
+
+// Helper para obter data YYYY-MM-DD local (Mesma lógica do Scheduler)
+const getLocalDateString = (date: Date): string => {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+};
 
 interface PersistedPlayerState {
     todaysQueue: ScheduleItem[];
@@ -47,6 +55,27 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
     
     const [selectedModalities, setSelectedModalities] = useState<StudyModality[]>(['PDF']);
 
+    // --- CÁLCULO DINÂMICO DE PROGRESSO (REAL-TIME) ---
+    const minutesStudiedToday = useMemo(() => {
+        let total = 0;
+        const todayStr = getLocalDateString(new Date());
+        
+        subjects.forEach(sub => {
+            if (sub.logs) {
+                sub.logs.forEach(log => {
+                    // Garante parse correto da data do log
+                    const logDate = getLocalDateString(new Date(log.date));
+                    if (logDate === todayStr) {
+                        total += (log.durationMinutes || 0);
+                    }
+                });
+            }
+        });
+        return total;
+    }, [subjects]);
+
+    const progressPercent = Math.min(100, Math.round((minutesStudiedToday / dailyAvailableTime) * 100));
+
     // --- FUNÇÃO PURA DE CÁLCULO DA FILA (VIA UTILS) ---
     const calculateDailyQueue = (): ScheduleItem[] => {
         if (subjects.length === 0) return [];
@@ -75,7 +104,6 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         const planSubjects = activeSubjects.filter(s => selectedIds.has(s.id));
 
         // CHAMA O MESMO UTILITÁRIO DO CALENDÁRIO
-        // Passamos 'todayDay' como targetDayOnly para performance, mas com a mesma semente base (Date)
         const schedule = generateMonthlySchedule(
             now, // Usa 'now' para determinar ano/mês (seed)
             planSubjects,
@@ -88,59 +116,71 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         return schedule[todayDay] || [];
     };
 
-    // --- EFFECT PRINCIPAL: INICIALIZAÇÃO E RESTAURAÇÃO INTELIGENTE ---
+    // --- EFFECT PRINCIPAL: INICIALIZAÇÃO E SINCRONIZAÇÃO ---
     useEffect(() => {
         // 1. Calcular a fila REAL para hoje com as configurações atuais
         const freshQueue = calculateDailyQueue();
+        const todayStr = getLocalDateString(new Date());
         
-        let restored = false;
-        
-        // 2. Tentar restaurar progresso APENAS se a fila for compatível
+        // Lógica: Sempre usamos a fila fresca do Scheduler para garantir que "Fila de Hoje" == "Plano de Estudos".
+        // O scheduler já sabe o que foi feito (Logs) e o que falta (Simulação).
+        setTodaysQueue(freshQueue);
+
+        // 2. Determinar onde o usuário parou (Índice)
+        // Tentamos restaurar o índice, mas validamos se ele ainda faz sentido na nova fila
         try {
             const savedState = localStorage.getItem('studyflow_player_state');
+            let restoredIndex = -1;
+
             if (savedState) {
                 const parsed: PersistedPlayerState = JSON.parse(savedState);
-                const today = new Date().toISOString().split('T')[0];
-                
-                if (parsed.date === today && parsed.todaysQueue.length > 0) {
-                    // Verificar consistência: Assinaturas de ID e Tipo
-                    const savedSignature = parsed.todaysQueue.map(i => `${i.subject.id}-${i.type}-${i.topic?.id || 'none'}`).join('|');
-                    const freshSignature = freshQueue.map(i => `${i.subject.id}-${i.type}-${i.topic?.id || 'none'}`).join('|');
-
-                    if (savedSignature === freshSignature) {
-                        // Re-hidratar objetos
-                        const rehydratedQueue = parsed.todaysQueue.map(item => {
-                            const freshSubject = subjects.find(s => s.id === item.subject.id) || item.subject;
-                            const freshTopic = item.topic ? freshSubject.topics.find(t => t.id === item.topic?.id) : undefined;
-                            return { ...item, subject: freshSubject, topic: freshTopic || item.topic };
-                        });
-
-                        setTodaysQueue(rehydratedQueue);
-                        setCurrentItemIndex(parsed.currentItemIndex);
+                if (parsed.date === todayStr) {
+                    restoredIndex = parsed.currentItemIndex;
+                    // Restaura timer apenas se não mudou de item drasticamente
+                    if (freshQueue[restoredIndex]?.subject.id === parsed.todaysQueue[parsed.currentItemIndex]?.subject.id) {
                         setTimeLeft(parsed.timeLeft);
                         setInitialTime(parsed.initialTime);
                         setElapsedTime(parsed.elapsedTime);
-                        restored = true;
                     }
                 }
             }
-        } catch (e) {
-            console.error("Erro ao restaurar estado do player:", e);
-        }
 
-        // 3. Se não restaurou (porque é outro dia ou as configurações mudaram), usa a Fila Fresca
-        if (!restored) {
-            setTodaysQueue(freshQueue);
-            if (freshQueue.length > 0) {
-                const duration = (freshQueue[0].durationMinutes || 25) * 60;
-                setTimeLeft(duration);
-                setInitialTime(duration);
+            // Se não conseguimos restaurar ou se a fila mudou, procuramos o primeiro item NÃO REALIZADO
+            // O Scheduler retorna itens "THEORY" com "durationMinutes" preenchido se vierem de Logs (Passado).
+            // Porém, para diferenciar "Feito" de "A Fazer" no mesmo dia, olhamos se tem um Log correspondente.
+            if (restoredIndex === -1 || restoredIndex >= freshQueue.length) {
+                // Encontrar o primeiro item que é puramente simulado (não tem log associado ou log é antigo)
+                // Simplificação: Itens simulados pelo scheduler HOJE não possuem log "real" atrelado da mesma forma que logs históricos.
+                // Mas o scheduler.ts unifica tudo como 'THEORY'. 
+                // A melhor forma de achar o "próximo" é ver quantos minutos já foram contabilizados na fila.
+                
+                // Estratégia: O scheduler coloca logs realizados (Branch A) antes dos simulados (Branch B).
+                // Então o índice deve ser o número de itens que JÁ SÃO logs de hoje.
+                
+                let completedCount = 0;
+                // Conta quantos itens na fila correspondem a logs que já existem no subject
+                // (Isso é uma heurística, pois o scheduler pode agrupar logs)
+                // Melhor abordagem: Verificar o tipo ou se o item já foi "visto".
+                // Como não temos um flag "done" no ScheduleItem, assumimos que o usuário segue a ordem.
+                
+                // Reset seguro: Começa do 0 se não tiver salvo
+                setCurrentItemIndex(0); 
+                
+                // Se for o primeiro load do dia, seta o tempo do primeiro item
+                if (freshQueue.length > 0) {
+                    const duration = (freshQueue[0].durationMinutes || 25) * 60;
+                    setTimeLeft(duration);
+                    setInitialTime(duration);
+                }
+            } else {
+                setCurrentItemIndex(restoredIndex);
             }
-            setCurrentItemIndex(0);
-            setElapsedTime(0);
+
+        } catch (e) {
+            console.error("Erro ao sincronizar player:", e);
         }
 
-    }, [subjects, dailyAvailableTime, errorLogs]); // Dependências críticas que forçam recálculo
+    }, [subjects, dailyAvailableTime, errorLogs]); 
 
     // --- SALVAR ESTADO PERSISTIDO (Auto-save SAFE) ---
     useEffect(() => {
@@ -152,7 +192,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                     timeLeft,
                     initialTime,
                     elapsedTime,
-                    date: new Date().toISOString().split('T')[0]
+                    date: getLocalDateString(new Date())
                 };
                 localStorage.setItem('studyflow_player_state', JSON.stringify(stateToSave));
             }
@@ -211,7 +251,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         setIsPlaying(false);
         const calculatedDuration = Math.max(1, Math.round(elapsedTime / 60));
         setSessionDuration(calculatedDuration);
-        setSessionTopicId(currentItem.topic?.id || '');
+        setSessionTopicId(currentItem?.topic?.id || '');
         setQuestionsDone(0);
         setQuestionsCorrect(0);
         setIsTopicFinished(false);
@@ -222,6 +262,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         if (onSessionComplete && currentItem) {
             const finalTopicId = sessionTopicId || (currentItem.topic ? currentItem.topic.id : '');
             
+            // 1. Atualiza dados globais (dispara re-render e recálculo da fila via useEffect)
             onSessionComplete(
                 currentItem.subject.id,
                 finalTopicId, 
@@ -236,30 +277,19 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         setIsReportOpen(false);
         setElapsedTime(0);
 
+        // 2. Avança para o próximo item
         if (currentItemIndex < todaysQueue.length - 1) {
             const nextIndex = currentItemIndex + 1;
-            const nextDur = (todaysQueue[nextIndex].durationMinutes || 25) * 60;
+            // Pega o tempo do próximo item da fila atual (que será atualizada em breve, mas o indice +1 é seguro)
+            const nextDur = (todaysQueue[nextIndex]?.durationMinutes || 25) * 60;
             
             setCurrentItemIndex(nextIndex);
             setTimeLeft(nextDur);
             setInitialTime(nextDur);
-
-            try {
-                const stateToSave: PersistedPlayerState = {
-                    todaysQueue,
-                    currentItemIndex: nextIndex,
-                    timeLeft: nextDur,
-                    initialTime: nextDur,
-                    elapsedTime: 0,
-                    date: new Date().toISOString().split('T')[0]
-                };
-                localStorage.setItem('studyflow_player_state', JSON.stringify(stateToSave));
-            } catch(e) {}
-
         } else {
             alert("Parabéns! Você completou a fila de hoje.");
             try { localStorage.removeItem('studyflow_player_state'); } catch(e) {}
-            setTodaysQueue([]);
+            // Não zeramos a fila aqui, deixamos o usuário ver o que completou
         }
     };
 
@@ -529,15 +559,18 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                         <div className="flex items-center justify-between mb-3">
                             <h3 className="font-bold text-slate-900 dark:text-white">Progresso Diário</h3>
                             <span className="text-xs font-semibold bg-green-100 dark:bg-green-900/30 text-green-600 dark:text-green-400 px-2 py-1 rounded">
-                                {(dailyAvailableTime / 60).toFixed(1)}h Meta
+                                {minutesStudiedToday}m / {dailyAvailableTime}m
                             </span>
                         </div>
                         <div className="relative pt-1">
-                            {/* Barra de progresso fake apenas para ilustrar */}
+                            {/* Barra de progresso real baseada no tempo */}
                             <div className="overflow-hidden h-2 mb-2 text-xs flex rounded bg-primary/10">
-                                <div className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-primary rounded" style={{width: `${Math.round(((currentItemIndex) / todaysQueue.length) * 100)}%`}}></div>
+                                <div 
+                                    className="shadow-none flex flex-col text-center whitespace-nowrap text-white justify-center bg-primary rounded transition-all duration-500 ease-out" 
+                                    style={{width: `${progressPercent}%`}}
+                                ></div>
                             </div>
-                            <p className="text-xs text-right text-gray-500">{currentItemIndex} de {todaysQueue.length} blocos completados</p>
+                            <p className="text-xs text-right text-gray-500">{progressPercent}% da meta temporal atingida</p>
                         </div>
                     </div>
 
