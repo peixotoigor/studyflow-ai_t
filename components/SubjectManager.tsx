@@ -65,6 +65,13 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     const [hasCustomWeight, setHasCustomWeight] = useState(false); // Flag para peso opcional
     const [newSubjectColor, setNewSubjectColor] = useState<string>('');
 
+    // States for EDIT Subject Modal
+    const [editingSubjectData, setEditingSubjectData] = useState<Subject | null>(null);
+    const [editName, setEditName] = useState('');
+    const [editWeight, setEditWeight] = useState<number>(1);
+    const [editHasWeight, setEditHasWeight] = useState(false);
+    const [editColor, setEditColor] = useState('');
+
     // States for IMPORT FROM PLAN Modal
     const [isImporting, setIsImporting] = useState(false);
     const [sourcePlanId, setSourcePlanId] = useState('');
@@ -157,6 +164,34 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
             setHasCustomWeight(false);
             setNewSubjectColor('');
             setIsCreatingSubject(false);
+        }
+    };
+
+    // --- Subject Edit Handlers ---
+    const openEditSubjectModal = (e: React.MouseEvent, subject: Subject) => {
+        e.stopPropagation(); // Impede abrir o card ao clicar no edit
+        setEditingSubjectData(subject);
+        setEditName(subject.name);
+        setEditColor(subject.color || 'blue');
+        
+        if (subject.weight !== undefined) {
+            setEditHasWeight(true);
+            setEditWeight(subject.weight);
+        } else {
+            setEditHasWeight(false);
+            setEditWeight(1);
+        }
+    };
+
+    const handleUpdateSubjectSubmit = () => {
+        if (editingSubjectData && editName.trim() && onUpdateSubject) {
+            onUpdateSubject({
+                ...editingSubjectData,
+                name: editName,
+                color: editColor,
+                weight: editHasWeight ? editWeight : undefined
+            });
+            setEditingSubjectData(null);
         }
     };
 
@@ -364,7 +399,15 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                                 <p className="text-sm text-text-secondary-light dark:text-text-secondary-dark">{subject.topics.length} tópicos cadastrados</p>
                             </div>
                         </div>
-                        <div className="flex items-center gap-3">
+                        <div className="flex items-center gap-2">
+                            {/* Botão de Editar Disciplina */}
+                            <button 
+                                onClick={(e) => openEditSubjectModal(e, subject)}
+                                className="px-3 py-1.5 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-blue-100 dark:hover:bg-blue-900/30 hover:text-blue-600 rounded-md flex items-center gap-1 transition-colors"
+                            >
+                                <span className="material-symbols-outlined text-[16px]">edit</span> Editar
+                            </button>
+                            
                             <button onClick={() => onDeleteSubject && onDeleteSubject(subject.id)} className="px-3 py-1.5 text-xs font-medium bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-md flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">delete_forever</span> Excluir</button>
                             <button onClick={() => toggleExpand(subject.id)} className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
                                 <span className="material-symbols-outlined text-[18px]">grid_view</span> Voltar
@@ -497,7 +540,7 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                                                     <div className={`size-10 rounded-lg flex items-center justify-center ${subjectBgClass} ${subjectColorClass}`}>
                                                         <span className="material-symbols-outlined fill text-xl">{getSubjectIcon(subject.name)}</span>
                                                     </div>
-                                                    {/* Mostra o peso se ele existir e for diferente de 1, OU se existir (decisão de design: mostrar sempre que for diferente de 1 para evitar poluição visual, mas se o usuário setar 1 explicitamente, ele pode querer ver? Vamos mostrar se definido.) */}
+                                                    {/* Mostra o peso se ele existir e for diferente de 1, OU se existir */}
                                                     {subject.weight !== undefined && (
                                                         <span className="text-[10px] font-black uppercase bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded">
                                                             Peso {subject.weight}
@@ -512,8 +555,14 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                                                     <p className="text-xs text-text-secondary-light dark:text-text-secondary-dark">{subject.topics.length} Tópicos</p>
                                                 </div>
 
-                                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                    <span className="material-symbols-outlined text-gray-400">open_in_full</span>
+                                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity flex gap-1">
+                                                    <button 
+                                                        onClick={(e) => openEditSubjectModal(e, subject)}
+                                                        className="p-1 rounded bg-white/80 dark:bg-black/50 hover:bg-blue-100 dark:hover:bg-blue-900 text-slate-500 hover:text-blue-600 transition-colors shadow-sm"
+                                                        title="Editar"
+                                                    >
+                                                        <span className="material-symbols-outlined text-[16px]">edit</span>
+                                                    </button>
                                                 </div>
                                             </div>
                                         );
@@ -601,6 +650,80 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                         <div className="flex justify-end gap-2 mt-8 pt-4 border-t border-slate-100 dark:border-slate-800">
                             <button onClick={() => setIsCreatingSubject(false)} className="px-4 py-2 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-bold">Cancelar</button>
                             <button onClick={handleCreateSubjectSubmit} disabled={!newSubjectName.trim()} className="px-6 py-2 bg-primary text-white rounded-lg text-sm font-bold hover:bg-blue-600 disabled:opacity-50 shadow-lg shadow-primary/20">Criar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de EDIÇÃO (NOVO) */}
+            {editingSubjectData && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-card-dark p-6 rounded-xl shadow-xl w-full max-w-md border border-slate-200 dark:border-slate-800">
+                        <h3 className="text-lg font-bold mb-6 text-gray-900 dark:text-white flex items-center gap-2">
+                            <span className="material-symbols-outlined text-primary">edit</span>
+                            Editar Disciplina
+                        </h3>
+                        
+                        <div className="flex flex-col gap-4">
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-bold uppercase text-slate-500">Nome</label>
+                                <input 
+                                    autoFocus 
+                                    type="text" 
+                                    value={editName} 
+                                    onChange={(e) => setEditName(e.target.value)} 
+                                    onKeyDown={(e) => e.key === 'Enter' && handleUpdateSubjectSubmit()} 
+                                    className="w-full border border-gray-300 dark:border-gray-700 p-2.5 rounded-lg text-black dark:text-white bg-white dark:bg-black/20 focus:ring-2 focus:ring-primary outline-none" 
+                                />
+                            </div>
+
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold uppercase text-slate-500">Peso no Edital</label>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-gray-400">{editHasWeight ? 'Ativado' : 'Padrão'}</span>
+                                        <div 
+                                            onClick={() => setEditHasWeight(!editHasWeight)}
+                                            className={`w-8 h-4 rounded-full p-0.5 cursor-pointer transition-colors ${editHasWeight ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'}`}
+                                        >
+                                            <div className={`w-3 h-3 bg-white rounded-full shadow-sm transform transition-transform ${editHasWeight ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                {editHasWeight && (
+                                    <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                                        <input 
+                                            type="range" 
+                                            min="0.5" 
+                                            max="5" 
+                                            step="0.5" 
+                                            value={editWeight} 
+                                            onChange={(e) => setEditWeight(parseFloat(e.target.value))} 
+                                            className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 accent-primary" 
+                                        />
+                                        <span className="w-12 text-center font-bold text-primary bg-primary/10 rounded px-1">{editWeight}x</span>
+                                    </div>
+                                )}
+                            </div>
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-bold uppercase text-slate-500">Cor</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {AVAILABLE_COLORS.map(c => (
+                                        <button
+                                            key={c}
+                                            onClick={() => setEditColor(editColor === c ? '' : c)}
+                                            className={`size-6 rounded-full bg-${c}-500 transition-all ${editColor === c ? 'ring-2 ring-offset-2 ring-primary dark:ring-offset-gray-900 scale-110' : 'hover:scale-110 opacity-70 hover:opacity-100'}`}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2 mt-8 pt-4 border-t border-slate-100 dark:border-slate-800">
+                            <button onClick={() => setEditingSubjectData(null)} className="px-4 py-2 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-bold">Cancelar</button>
+                            <button onClick={handleUpdateSubjectSubmit} disabled={!editName.trim()} className="px-6 py-2 bg-primary text-white rounded-lg text-sm font-bold hover:bg-blue-600 disabled:opacity-50 shadow-lg shadow-primary/20">Salvar</button>
                         </div>
                     </div>
                 </div>
