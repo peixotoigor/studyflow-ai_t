@@ -136,7 +136,7 @@ export const generateMonthlySchedule = (
         const dailyItems: ScheduleItem[] = [];
 
         // =================================================================================
-        // RAMIFICAÇÃO A: PROCESSAR PASSADO (Baseado em LOGS REAIS)
+        // RAMIFICAÇÃO A: PROCESSAR PASSADO (Baseado em LOGS REAIS e ESTADO ATUAL)
         // =================================================================================
         if (isPastDate) {
             // Procura logs reais para este dia
@@ -147,7 +147,6 @@ export const generateMonthlySchedule = (
                         
                         if (logDateStr === currentDateStr) {
                             // Busca o tópico REAL na lista atual de tópicos da matéria
-                            // Se o log for manual (id não bate), tenta achar por nome ou ignora
                             const realTopic = sub.topics.find(t => t.id === log.topicId);
                             
                             // Objeto de exibição
@@ -198,7 +197,7 @@ export const generateMonthlySchedule = (
             continue;
         }
 
-        // 1. Processar Revisões Pendentes (Geradas por Logs Passados ou Teoria Simulada Anterior)
+        // 1. Processar Revisões Pendentes (Geradas EXCLUSIVAMENTE por Tópicos Já Concluídos)
         if (useSRS && pendingReviews[day]) {
             pendingReviews[day].forEach(revSub => {
                 dailyItems.push({ subject: revSub, type: 'REVIEW' });
@@ -223,17 +222,22 @@ export const generateMonthlySchedule = (
 
                 dailyItems.push({ subject: selectedSubject, type: 'THEORY', topic: topic });
 
-                // Agenda revisões futuras (Assume-se que ao agendar teoria no futuro, ela será concluída neste dia)
-                // APENAS se SRS estiver ativo
+                // MUDANÇA CRÍTICA: NÃO AGENDAR REVISÃO PARA TEORIA SIMULADA/FUTURA.
+                // Isso garante que revisões só apareçam para tópicos que o usuário JÁ marcou como concluído.
+                // O agendamento se torna REATIVO (Concluiu -> Agendou) e não PREDITIVO (Agendou Teoria -> Agendou Revisão).
+                
+                /* 
+                // CÓDIGO ANTIGO REMOVIDO PARA EVITAR REVISÕES FANTASMAS
                 if (useSRS) {
                     const intervals = getReviewIntervals(selectedSubject);
                     intervals.forEach(interval => {
                         if (day + interval <= daysInMonth + 30) addReview(day + interval, selectedSubject);
                     });
                 }
+                */
+
             } else {
                 // Fim dos tópicos (Revisão Geral ou Estudo Livre)
-                // Não gera novas revisões SRS pois não há tópico novo
                 dailyItems.push({ subject: selectedSubject, type: 'THEORY' }); 
             }
         }

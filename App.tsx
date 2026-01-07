@@ -648,6 +648,15 @@ function App() {
       }));
   };
 
+  // Função para alternar o status de conclusão de um tópico manualmente
+  const handleToggleTopicCompletion = (subjectId: string, topicId: string) => {
+      setSubjects(prev => prev.map(s => {
+          if (s.id !== subjectId) return s;
+          const newTopics = s.topics.map(t => t.id === topicId ? { ...t, completed: !t.completed } : t);
+          return { ...s, topics: newTopics };
+      }));
+  };
+
   const [theme, setTheme] = useState(() => (typeof window !== 'undefined' ? safeGet('theme', 'light') : 'light'));
   useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark'); safeSet('theme', theme); }, [theme]);
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
@@ -722,6 +731,7 @@ function App() {
                                         onEditTopic={handleEditTopic} 
                                         onUpdateLog={handleUpdateLog}
                                         onDeleteLog={handleDeleteSubjectLog}
+                                        onToggleTopicCompletion={handleToggleTopicCompletion} // Passando a nova função
                                         apiKey={user.openAiApiKey} 
                                         model={user.openAiModel} 
                                     />;
