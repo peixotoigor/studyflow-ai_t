@@ -725,10 +725,15 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                     <div className="flex items-center gap-4">
                         <button 
                             onClick={() => setIsSidebarOpen(!isSidebarOpen)} 
-                            className={`p-2 rounded-lg hover:bg-gray-100 dark:hover:bg-white/5 transition-colors ${isSidebarOpen ? 'bg-primary/10 text-primary' : 'text-text-secondary-light dark:text-text-secondary-dark'}`}
-                            title="Alternar Configurações"
+                            className={`flex items-center gap-2 px-3 py-2 rounded-lg border transition-all ${
+                                isSidebarOpen 
+                                ? 'bg-primary/10 border-primary/20 text-primary' 
+                                : 'bg-white dark:bg-card-dark border-gray-200 dark:border-gray-700 text-slate-600 dark:text-slate-300 hover:bg-gray-50 dark:hover:bg-gray-800'
+                            }`}
+                            title="Ajustar Parâmetros do Plano"
                         >
-                            <span className="material-symbols-outlined">tune</span>
+                            <span className="material-symbols-outlined text-[20px]">tune</span>
+                            <span className="text-sm font-bold hidden sm:inline">Ajustar Plano</span>
                         </button>
                         <div className="flex flex-col">
                             <h1 className="text-xl md:text-2xl font-black text-text-primary-light dark:text-white leading-none capitalize">
