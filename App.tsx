@@ -84,7 +84,7 @@ const decryptVault = async (encryptedBase64: string, password: string) => {
         const dec = new TextDecoder();
         return JSON.parse(dec.decode(decryptedBuffer));
     } catch (e) {
-        throw new Error("Senha incorreta ou dados corrompidos.");
+        throw new Error("Senha incorreta ou dados corrompido.");
     }
 };
 
@@ -672,11 +672,20 @@ function App() {
       }));
   };
 
-  const handleAddSubjectLog = (subjectId: string, log: StudyLog) => {
+  // --- ATUALIZADO: Suporte para marcar tópico como concluído via Histórico ---
+  const handleAddSubjectLog = (subjectId: string, log: StudyLog, markAsCompleted?: boolean) => {
       setSubjects(prev => prev.map(s => {
           if (s.id !== subjectId) return s;
+          
           const newLogs = [log, ...(s.logs || [])];
-          return { ...s, logs: newLogs };
+          let newTopics = s.topics;
+
+          if (markAsCompleted && log.topicId) {
+              // Marca o tópico correspondente como concluído
+              newTopics = s.topics.map(t => t.id === log.topicId ? { ...t, completed: true } : t);
+          }
+
+          return { ...s, logs: newLogs, topics: newTopics };
       }));
   };
 

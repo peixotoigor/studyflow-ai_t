@@ -5,7 +5,7 @@ interface StudyHistoryProps {
     subjects: Subject[];
     onUpdateLog: (subjectId: string, logId: string, updatedLog: Partial<StudyLog>) => void;
     onDeleteLog: (subjectId: string, logId: string) => void;
-    onAddLog?: (subjectId: string, log: StudyLog) => void;
+    onAddLog?: (subjectId: string, log: StudyLog, markAsCompleted?: boolean) => void;
 }
 
 export const StudyHistory: React.FC<StudyHistoryProps> = ({ subjects, onUpdateLog, onDeleteLog, onAddLog }) => {
@@ -24,6 +24,7 @@ export const StudyHistory: React.FC<StudyHistoryProps> = ({ subjects, onUpdateLo
     const [newLogDuration, setNewLogDuration] = useState(30);
     const [newLogQuestions, setNewLogQuestions] = useState(0);
     const [newLogCorrect, setNewLogCorrect] = useState(0);
+    const [markAsCompleted, setMarkAsCompleted] = useState(false);
 
     // Achatar todos os logs em uma única lista com metadados da matéria
     const allLogs = useMemo(() => {
@@ -46,6 +47,15 @@ export const StudyHistory: React.FC<StudyHistoryProps> = ({ subjects, onUpdateLo
         
         return matchesSearch && matchesSubject;
     });
+
+    // Encontrar tópicos da disciplina selecionada
+    const selectedSubjectTopics = subjects.find(s => s.id === newLogSubjectId)?.topics || [];
+    
+    // Lógica Inteligente: Verifica se o texto digitado bate com algum tópico existente
+    const matchingTopic = useMemo(() => {
+        if (!newLogTopic.trim()) return null;
+        return selectedSubjectTopics.find(t => t.name.trim().toLowerCase() === newLogTopic.trim().toLowerCase());
+    }, [newLogTopic, selectedSubjectTopics]);
 
     // --- Editing Handlers ---
     const startEditingLog = (log: any) => {
@@ -71,17 +81,24 @@ export const StudyHistory: React.FC<StudyHistoryProps> = ({ subjects, onUpdateLo
         e.preventDefault();
         if (!newLogSubjectId || !newLogTopic.trim() || !onAddLog) return;
 
+        // Se encontrou um tópico correspondente, usa o ID real dele. Senão, gera um ID manual.
+        const finalTopicId = matchingTopic ? matchingTopic.id : `manual-topic-${Date.now()}`;
+        // Se usou o ID real, usa o nome oficial. Senão, usa o digitado.
+        const finalTopicName = matchingTopic ? matchingTopic.name : newLogTopic;
+
         const newLog: StudyLog = {
             id: `manual-${Date.now()}`,
             date: new Date(newLogDate),
-            topicId: `manual-topic-${Date.now()}`, // ID fictício para tópicos manuais
-            topicName: newLogTopic,
+            topicId: finalTopicId,
+            topicName: finalTopicName,
             durationMinutes: newLogDuration,
             questionsCount: newLogQuestions,
             correctCount: newLogCorrect
         };
 
-        onAddLog(newLogSubjectId, newLog);
+        // Passa a flag de conclusão apenas se houver match E o usuário marcou
+        onAddLog(newLogSubjectId, newLog, !!matchingTopic && markAsCompleted);
+        
         setIsAdding(false);
         
         // Reset form
@@ -90,9 +107,8 @@ export const StudyHistory: React.FC<StudyHistoryProps> = ({ subjects, onUpdateLo
         setNewLogDuration(30);
         setNewLogQuestions(0);
         setNewLogCorrect(0);
+        setMarkAsCompleted(false);
     };
-
-    const selectedSubjectTopics = subjects.find(s => s.id === newLogSubjectId)?.topics || [];
 
     return (
         <div className="flex-1 w-full max-w-[1400px] mx-auto p-4 md:p-8 flex flex-col h-full overflow-hidden">
@@ -313,8 +329,8 @@ export const StudyHistory: React.FC<StudyHistoryProps> = ({ subjects, onUpdateLo
             {/* Modal de Adição Manual */}
             {isAdding && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
-                    <div className="bg-white dark:bg-card-dark w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6">
-                        <div className="flex justify-between items-center mb-6">
+                    <div className="bg-white dark:bg-card-dark w-full max-w-lg rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 p-6 flex flex-col max-h-[90vh]">
+                        <div className="flex justify-between items-center mb-6 shrink-0">
                             <h2 className="text-xl font-bold text-slate-900 dark:text-white flex items-center gap-2">
                                 <span className="material-symbols-outlined text-primary">add_task</span>
                                 Registrar Sessão Manualmente
@@ -324,13 +340,16 @@ export const StudyHistory: React.FC<StudyHistoryProps> = ({ subjects, onUpdateLo
                             </button>
                         </div>
                         
-                        <form onSubmit={handleAddSubmit} className="flex flex-col gap-4">
+                        <form onSubmit={handleAddSubmit} className="flex flex-col gap-4 overflow-y-auto pr-2 custom-scrollbar">
                             <div className="flex flex-col gap-1.5">
                                 <label className="text-xs font-bold uppercase text-slate-500 dark:text-slate-400">Disciplina *</label>
                                 <select 
                                     required
                                     value={newLogSubjectId}
-                                    onChange={(e) => setNewLogSubjectId(e.target.value)}
+                                    onChange={(e) => {
+                                        setNewLogSubjectId(e.target.value);
+                                        setNewLogTopic(''); // Reseta tópico ao mudar disciplina
+                                    }}
                                     className="w-full rounded-lg border-slate-200 dark:border-slate-700 bg-white dark:bg-slate-800 text-slate-900 dark:text-white focus:ring-2 focus:ring-primary/50 py-2.5 px-3 text-sm"
                                 >
                                     <option value="">Selecione...</option>
@@ -359,6 +378,21 @@ export const StudyHistory: React.FC<StudyHistoryProps> = ({ subjects, onUpdateLo
                                         </datalist>
                                     )}
                                 </div>
+                                {matchingTopic && (
+                                    <div className={`mt-2 p-3 rounded-lg border flex items-start gap-3 transition-colors ${markAsCompleted ? 'bg-green-50 dark:bg-green-900/20 border-green-200 dark:border-green-800' : 'bg-slate-50 dark:bg-slate-800/50 border-slate-200 dark:border-slate-700'}`}>
+                                        <input 
+                                            type="checkbox" 
+                                            id="mark-completed"
+                                            checked={markAsCompleted}
+                                            onChange={(e) => setMarkAsCompleted(e.target.checked)}
+                                            className="mt-0.5 size-4 rounded border-gray-300 text-green-600 focus:ring-green-500"
+                                        />
+                                        <label htmlFor="mark-completed" className="text-xs cursor-pointer select-none">
+                                            <span className="font-bold block text-slate-800 dark:text-white mb-0.5">Marcar como Concluído?</span>
+                                            <span className="text-slate-500 dark:text-slate-400 block">Isso atualizará o status do tópico <strong>{matchingTopic.name}</strong> no edital.</span>
+                                        </label>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="grid grid-cols-2 gap-4">
