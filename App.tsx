@@ -1,3 +1,4 @@
+
 import React, { useState, useEffect, useRef } from 'react';
 import { Sidebar } from './components/Sidebar';
 import { Dashboard } from './components/Dashboard';
@@ -11,7 +12,7 @@ import { SimulatedExams } from './components/SimulatedExams';
 import { SavedNotes } from './components/SavedNotes'; 
 import { ProfileModal } from './components/ProfileModal';
 import { BottomNavigation } from './components/BottomNavigation';
-import { Screen, UserProfile, Subject, ImporterState, Topic, ErrorLog, StudyLog, StudyPlan, SimulatedExam, SavedNote, StudyModality } from './types';
+import { Screen, UserProfile, Subject, Topic, ErrorLog, StudyLog, StudyPlan, SimulatedExam, SavedNote, StudyModality, ImporterState } from './types';
 
 // Dados iniciais vazios
 const INITIAL_SUBJECTS: Subject[] = [];
@@ -196,15 +197,14 @@ function App() {
       return [];
   });
 
-  const [importerState, setImporterState] = useState<ImporterState>(() => {
-      try {
-          const saved = safeGet('studyflow_importer');
-          if (saved) {
-              const parsed = JSON.parse(saved);
-              return { ...parsed, selectedSubjects: new Set(parsed.selectedSubjects || []) };
-          }
-      } catch(e) {}
-      return { step: 'UPLOAD', fileName: '', processingStatus: '', progress: 0, syllabus: null, selectedSubjects: new Set() };
+  // STATE DO IMPORTADOR
+  const [importerState, setImporterState] = useState<ImporterState>({
+      step: 'UPLOAD',
+      fileName: '',
+      processingStatus: '',
+      progress: 0,
+      syllabus: null,
+      selectedSubjects: new Set()
   });
 
   // --- VAULT DETECTION LOGIC ---
@@ -300,7 +300,6 @@ function App() {
               savedNotes,
               scheduleSettings: JSON.parse(safeGet('studyflow_schedule_settings') || '{}'),
               scheduleSelection: JSON.parse(safeGet('studyflow_schedule_selection') || '[]'),
-              importerState: JSON.parse(safeGet('studyflow_importer') || 'null'),
               playerState: JSON.parse(safeGet('studyflow_player_state') || 'null'),
               expandedSubjectId: safeGet('studyflow_expanded_subject_id') || null
           };
@@ -410,7 +409,6 @@ function App() {
   const handleManualGithubSync = async (token: string) => {
       if (!token) return;
       try {
-          // Adiciona ?per_page=100 para garantir que pegamos todos os Gists
           const response = await fetch('https://api.github.com/gists?per_page=100', {
               headers: { 'Authorization': `token ${token}` }
           });
@@ -430,11 +428,9 @@ function App() {
               const vRes = await fetch(vaultUrl, { headers: { 'Authorization': `token ${token}` }});
               const vData = await vRes.json();
               if (vData.data) {
-                  // Instala o cofre localmente de forma SÍNCRONA
                   safeSet('studyflow_secure_vault', vData.data);
                   setVaultEncryptedData(vData.data);
                   
-                  // IMPORTANTE: Bloqueia o app e LIMPA o user state para evitar persistência acidental do token
                   setIsVaultLocked(true);
                   vaultFound = true;
                   
@@ -451,10 +447,8 @@ function App() {
 
           if (backupGist) {
               if (vaultFound) {
-                  // Se achou o cofre, restaura os dados SEM passar o token em texto claro (forcedKeys undefined).
                   await handleRestoreData(backupGist.id, token, true); 
               } else {
-                  // Se NÃO achou cofre, restaura e injeta o token (modo inseguro/padrão)
                   await handleRestoreData(backupGist.id, token, false, { githubToken: token, backupGistId: backupGist.id });
               }
           } else {
@@ -488,10 +482,8 @@ function App() {
           
           setIsVaultLocked(false);
 
-          // Sincronização automática pós-desbloqueio (garante dados frescos)
           if (decryptedData.backupGistId) {
               setSyncState('SYNCING');
-              // Usa o token recém desencriptado
               await handleRestoreData(decryptedData.backupGistId, decryptedData.githubToken, true, decryptedData);
           }
           
@@ -509,7 +501,6 @@ function App() {
       sessionStorage.removeItem('studyflow_session_pass');
       setIsVaultLocked(true);
       setVaultEncryptedData(safeGet('studyflow_secure_vault'));
-      // Limpa dados sensíveis da memória ao bloquear
       setUser(prev => ({ ...prev, openAiApiKey: '', githubToken: '' }));
   };
 
@@ -520,28 +511,20 @@ function App() {
   useEffect(() => { safeSet('studyflow_current_plan', currentPlanId); }, [currentPlanId]);
   useEffect(() => { safeSet('studyflow_simulated_exams', JSON.stringify(simulatedExams)); }, [simulatedExams]);
   useEffect(() => { safeSet('studyflow_saved_notes', JSON.stringify(savedNotes)); }, [savedNotes]);
-  useEffect(() => {
-      const stateToSave = { ...importerState, selectedSubjects: Array.from(importerState.selectedSubjects) };
-      safeSet('studyflow_importer', JSON.stringify(stateToSave));
-  }, [importerState]);
 
-  // CRITICAL: User Persistence & Security Check
   useEffect(() => {
-    // Verifica diretamente no localStorage para garantir que a flag seja verdadeira 
-    // mesmo que o state `vaultEncryptedData` tenha delay na atualização.
     const hasLocalVault = !!safeGet('studyflow_secure_vault');
     const isVaultActive = hasLocalVault || !!vaultEncryptedData;
     
     const secureUser = {
         ...user,
-        // Se o cofre estiver ativo (localmente ou em memória), NUNCA salve chaves no localStorage inseguro.
         openAiApiKey: isVaultActive ? '' : encrypt(user.openAiApiKey),
         githubToken: isVaultActive ? '' : encrypt(user.githubToken)
     };
     safeSet('studyflow_user', JSON.stringify(secureUser));
   }, [user, vaultEncryptedData]); 
 
-  // Handlers de dados...
+  // Handlers
   const handleAddPlan = (name: string) => {
       const newPlan: StudyPlan = { id: `plan-${Date.now()}`, name, color: 'blue', createdAt: new Date() };
       setPlans(prev => [...prev, newPlan]);
@@ -566,22 +549,16 @@ function App() {
   
   const handleImportSubjects = (newSubjects: Subject[]) => {
       setSubjects(prev => [...prev, ...newSubjects.map(s => ({ ...s, planId: currentPlanId }))]);
-      const reset = { step: 'UPLOAD', fileName: '', processingStatus: '', progress: 0, syllabus: null, selectedSubjects: new Set() };
-      setImporterState(reset as ImporterState);
-      safeSet('studyflow_importer', JSON.stringify({ ...reset, selectedSubjects: [] }));
       setCurrentScreen(Screen.SUBJECTS);
+      setImporterState(prev => ({ ...prev, step: 'SUCCESS' })); // Mantém estado ou reseta se preferir
   };
   
   const handleDeleteSubject = (id: string) => { if(window.confirm("Apagar disciplina?")) setSubjects(prev => prev.filter(s => s.id !== id)); };
   const handleToggleSubjectStatus = (id: string) => setSubjects(prev => prev.map(s => s.id === id ? { ...s, active: !s.active } : s));
   
-  // --- SMART COLOR SELECTION LOGIC ---
-  // Atualizada para aceitar peso e cor opcionais
   const handleAddManualSubject = (name: string, weight?: number, manualColor?: string) => {
       if (name?.trim()) {
-          // Lógica de Cor: Se manualColor for passado, usa ele. Senão, usa lógica smart.
           let nextColor = manualColor;
-
           if (!nextColor) {
               const colorCounts: Record<string, number> = {};
               AUTO_COLORS.forEach(c => colorCounts[c] = 0);
@@ -600,7 +577,7 @@ function App() {
               name, 
               active: true, 
               color: nextColor || 'blue', 
-              weight: weight, // Agora persiste o peso (undefined se não passado)
+              weight: weight,
               topics: [], 
               priority: 'MEDIUM', 
               proficiency: 'INTERMEDIATE', 
@@ -646,50 +623,35 @@ function App() {
       }));
   };
 
-  // Correção de Integridade: Ao apagar um log, verifica se era o ÚNICO log daquele tópico. Se for, desmarca o tópico como concluído.
   const handleDeleteSubjectLog = (subjectId: string, logId: string) => {
       if (!window.confirm("Deseja apagar este registro de estudo?")) return;
-      
       setSubjects(prev => prev.map(s => {
           if (s.id !== subjectId) return s;
-          
           const logToDelete = s.logs?.find(l => l.id === logId);
           const newLogs = s.logs ? s.logs.filter(log => log.id !== logId) : [];
-          
           let newTopics = s.topics;
-
           if (logToDelete && logToDelete.topicId) {
-              // Verifica se ainda existe algum log apontando para este topicId
               const hasRemainingLogsForTopic = newLogs.some(l => l.topicId === logToDelete.topicId);
-              
               if (!hasRemainingLogsForTopic) {
-                  // Se não há mais logs, o tópico volta a ser não-concluído
                   newTopics = s.topics.map(t => t.id === logToDelete.topicId ? { ...t, completed: false } : t);
               }
           }
-
           return { ...s, topics: newTopics, logs: newLogs };
       }));
   };
 
-  // --- ATUALIZADO: Suporte para marcar tópico como concluído via Histórico ---
   const handleAddSubjectLog = (subjectId: string, log: StudyLog, markAsCompleted?: boolean) => {
       setSubjects(prev => prev.map(s => {
           if (s.id !== subjectId) return s;
-          
           const newLogs = [log, ...(s.logs || [])];
           let newTopics = s.topics;
-
           if (markAsCompleted && log.topicId) {
-              // Marca o tópico correspondente como concluído
               newTopics = s.topics.map(t => t.id === log.topicId ? { ...t, completed: true } : t);
           }
-
           return { ...s, logs: newLogs, topics: newTopics };
       }));
   };
 
-  // Função para alternar o status de conclusão de um tópico manualmente
   const handleToggleTopicCompletion = (subjectId: string, topicId: string) => {
       setSubjects(prev => prev.map(s => {
           if (s.id !== subjectId) return s;
@@ -698,26 +660,21 @@ function App() {
       }));
   };
 
-  // Nova Função: Importar (Copiar) disciplinas de outro plano
   const handleImportSubjectsFromPlan = (sourcePlanId: string, subjectIdsToCopy: string[]) => {
       const sourceSubjects = subjects.filter(s => s.planId === sourcePlanId && subjectIdsToCopy.includes(s.id));
-      
       if (sourceSubjects.length === 0) return;
-
       const newSubjects: Subject[] = sourceSubjects.map(sub => ({
           ...sub,
-          id: `imported-plan-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Novo ID
-          planId: currentPlanId, // Vincula ao plano atual
-          // Reseta estado dos tópicos (não concluídos, novos IDs)
+          id: `imported-plan-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+          planId: currentPlanId, 
           topics: sub.topics.map(t => ({
               ...t,
               id: `topic-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
               completed: false
           })),
-          logs: [], // Zera histórico
-          active: true // Garante que venha ativa
+          logs: [], 
+          active: true 
       }));
-
       setSubjects(prev => [...prev, ...newSubjects]);
       alert(`${newSubjects.length} disciplinas importadas com sucesso!`);
   };
@@ -786,8 +743,8 @@ function App() {
       case Screen.STUDY_PLAYER: return <StudyPlayer apiKey={user.openAiApiKey} model={user.openAiModel} subjects={currentPlanSubjects} dailyAvailableTime={user.dailyAvailableTimeMinutes || 240} onSessionComplete={handleSessionComplete} onNavigate={setCurrentScreen} onSaveNote={handleAddSavedNote} errorLogs={currentPlanErrorLogs} />;
       case Screen.SUBJECTS: return <SubjectManager 
                                         subjects={currentPlanSubjects}
-                                        allSubjects={subjects} // Passa TODAS as disciplinas para permitir importação
-                                        plans={plans} // Passa os planos para o seletor
+                                        allSubjects={subjects}
+                                        plans={plans}
                                         onImportFromPlan={handleImportSubjectsFromPlan}
                                         onDeleteSubject={handleDeleteSubject} 
                                         onAddSubject={handleAddManualSubject} 
@@ -800,11 +757,18 @@ function App() {
                                         onUpdateLog={handleUpdateLog}
                                         onDeleteLog={handleDeleteSubjectLog}
                                         onToggleTopicCompletion={handleToggleTopicCompletion} 
+                                        onRestoreSubjects={handleImportSubjects} // Passando a função para restaurar (mesma lógica de importação)
                                         apiKey={user.openAiApiKey} 
                                         model={user.openAiModel} 
                                     />;
       case Screen.HISTORY: return <StudyHistory subjects={currentPlanSubjects} onUpdateLog={handleUpdateLog} onDeleteLog={handleDeleteSubjectLog} onAddLog={handleAddSubjectLog} />;
-      case Screen.IMPORTER: return <Importer apiKey={user.openAiApiKey} model={user.openAiModel} onImport={handleImportSubjects} state={importerState} setState={setImporterState} />;
+      case Screen.IMPORTER: return <Importer 
+                                      apiKey={user.openAiApiKey} 
+                                      model={user.openAiModel} 
+                                      onImport={handleImportSubjects} 
+                                      state={importerState} 
+                                      setState={setImporterState} 
+                                   />;
       case Screen.DYNAMIC_SCHEDULE: return <DynamicSchedule subjects={currentPlanSubjects} onUpdateSubject={handleUpdateSubject} user={user} onUpdateUser={setUser} errorLogs={currentPlanErrorLogs} />;
       case Screen.ERROR_NOTEBOOK: return <ErrorNotebook subjects={currentPlanSubjects} logs={currentPlanErrorLogs} onAddLog={handleAddErrorLog} onDeleteLog={handleDeleteErrorLog} />;
       case Screen.SIMULATED_EXAMS: return <SimulatedExams exams={currentPlanExams} onAddExam={handleAddSimulatedExam} onDeleteExam={handleDeleteSimulatedExam} />;

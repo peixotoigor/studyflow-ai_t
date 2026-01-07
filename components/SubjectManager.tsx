@@ -18,6 +18,7 @@ interface SubjectManagerProps {
     onUpdateLog?: (subjectId: string, logId: string, updatedLog: Partial<StudyLog>) => void;
     onDeleteLog?: (subjectId: string, logId: string) => void;
     onToggleTopicCompletion?: (subjectId: string, topicId: string) => void; 
+    onRestoreSubjects?: (subjects: Subject[]) => void; // Nova prop para Undo
     apiKey?: string;
     model?: string;
 }
@@ -42,6 +43,7 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     onUpdateLog,
     onDeleteLog,
     onToggleTopicCompletion,
+    onRestoreSubjects,
     apiKey,
     model = 'gpt-4o-mini'
 }) => {
@@ -90,6 +92,11 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     const [selectedSubjectIds, setSelectedSubjectIds] = useState<Set<string>>(new Set());
     const [isBulkWeightModalOpen, setIsBulkWeightModalOpen] = useState(false);
     const [bulkWeightValue, setBulkWeightValue] = useState(1);
+
+    // State for UNDO (Deletion)
+    const [lastDeletedBatch, setLastDeletedBatch] = useState<Subject[] | null>(null);
+    const [showUndoToast, setShowUndoToast] = useState(false);
+    const undoTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
     // State for Drag and Drop
     const [draggedTopicIndex, setDraggedTopicIndex] = useState<number | null>(null);
@@ -163,13 +170,47 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
         }
     };
 
+    const handleBulkArchive = () => {
+        if (selectedSubjectIds.size === 0 || !onToggleStatus) return;
+        // Arquiva (toggle status) todas as selecionadas
+        selectedSubjectIds.forEach(id => {
+            onToggleStatus(id);
+        });
+        setSelectedSubjectIds(new Set()); // Limpa seleção
+        // Não precisa de confirmação complexa pois é reversível facilmente no menu de inativas (se existisse)
+        // Como o app filtra por active, elas somem. O ideal seria ter uma aba "Arquivadas", mas seguindo o escopo atual, apenas somem.
+    };
+
     const handleBulkDelete = () => {
         if (selectedSubjectIds.size === 0) return;
-        if (confirm(`Tem certeza que deseja excluir ${selectedSubjectIds.size} disciplinas?`)) {
-            selectedSubjectIds.forEach(id => {
-                if (onDeleteSubject) onDeleteSubject(id);
-            });
-            setSelectedSubjectIds(new Set());
+        
+        // 1. Guardar backup para Undo
+        const subjectsToDelete = subjects.filter(s => selectedSubjectIds.has(s.id));
+        setLastDeletedBatch(subjectsToDelete);
+
+        // 2. Excluir de fato
+        subjectsToDelete.forEach(s => {
+            if (onDeleteSubject) onDeleteSubject(s.id);
+        });
+
+        // 3. UI Updates
+        setSelectedSubjectIds(new Set());
+        setShowUndoToast(true);
+
+        // 4. Timer para limpar o buffer de undo
+        if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
+        undoTimeoutRef.current = setTimeout(() => {
+            setShowUndoToast(false);
+            setLastDeletedBatch(null); // Limpa memória após expirar
+        }, 6000); // 6 segundos para desfazer
+    };
+
+    const handleUndoDelete = () => {
+        if (lastDeletedBatch && onRestoreSubjects) {
+            onRestoreSubjects(lastDeletedBatch);
+            setLastDeletedBatch(null);
+            setShowUndoToast(false);
+            if (undoTimeoutRef.current) clearTimeout(undoTimeoutRef.current);
         }
     };
 
@@ -192,18 +233,8 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
             const weightToSend = hasCustomWeight ? newSubjectWeight : undefined;
             onAddSubject(newSubjectName, weightToSend, newSubjectColor);
             
-            // Se houver texto para processar via IA, precisamos encontrar a disciplina recém criada
-            // Como onAddSubject é void, vamos usar um timeout ou effect para pegar a última disciplina criada
-            // Para simplificar: Se o usuário colou texto, avisamos para ele usar a varinha mágica na disciplina criada ou implementamos uma lógica mais complexa.
-            // MELHORIA: Vamos processar o texto e adicionar os tópicos manualmente se a IA processar AGORA.
-            // Mas precisamos do ID. Vamos apenas instruir o usuário ou abrir o modal de IA depois.
-            
             if (creationSyllabusText.trim()) {
-                // Pequeno hack: espera o state atualizar e abre o modal de IA para a última disciplina
-                // Isso requer que o pai atualize subjects. Vamos assumir que é rápido.
                 setTimeout(() => {
-                    // Tenta achar a disciplina pelo nome (arriscado se duplicado, mas funcional)
-                    // Idealmente o backend retorna o ID.
                     alert("Disciplina criada! Para processar o conteúdo colado, clique no botão 'Varinha Mágica' no card da disciplina.");
                 }, 500);
             }
@@ -623,20 +654,48 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                         )}
                     </div>
 
-                    {/* Bulk Action Bar */}
+                    {/* Bulk Action Bar (Atualizado com Arquivar) */}
                     {selectedSubjectIds.size > 0 && (
                         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 bg-slate-900 text-white p-2 rounded-xl shadow-2xl z-40 flex items-center gap-2 animate-in slide-in-from-bottom-4">
                             <span className="px-3 text-xs font-bold bg-white/10 rounded-lg py-1.5">{selectedSubjectIds.size} selecionadas</span>
                             <div className="h-6 w-px bg-white/20"></div>
-                            <button onClick={() => setIsBulkWeightModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-white/10 rounded-lg transition-colors text-xs font-bold">
+                            
+                            {/* Botão Arquivar */}
+                            <button onClick={handleBulkArchive} className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-white/10 rounded-lg transition-colors text-xs font-bold text-slate-300 hover:text-white">
+                                <span className="material-symbols-outlined text-sm">archive</span> Arquivar
+                            </button>
+
+                            <button onClick={() => setIsBulkWeightModalOpen(true)} className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-white/10 rounded-lg transition-colors text-xs font-bold text-slate-300 hover:text-white">
                                 <span className="material-symbols-outlined text-sm">monitor_weight</span> Peso
                             </button>
+                            
                             <button onClick={handleBulkDelete} className="flex items-center gap-1.5 px-3 py-1.5 hover:bg-red-500/20 text-red-300 hover:text-red-200 rounded-lg transition-colors text-xs font-bold">
                                 <span className="material-symbols-outlined text-sm">delete</span> Excluir
                             </button>
+                            
                             <button onClick={() => setSelectedSubjectIds(new Set())} className="ml-2 p-1 hover:bg-white/10 rounded-full">
                                 <span className="material-symbols-outlined text-sm">close</span>
                             </button>
+                        </div>
+                    )}
+
+                    {/* UNDO TOAST (Reversão de Exclusão) */}
+                    {showUndoToast && lastDeletedBatch && (
+                        <div className="fixed bottom-6 right-6 z-50 animate-in slide-in-from-bottom-10 fade-in duration-300">
+                            <div className="bg-slate-800 text-white pl-4 pr-2 py-3 rounded-lg shadow-2xl flex items-center gap-4 border border-slate-700">
+                                <div className="flex flex-col">
+                                    <span className="text-sm font-bold">{lastDeletedBatch.length} {lastDeletedBatch.length > 1 ? 'disciplinas excluídas' : 'disciplina excluída'}</span>
+                                </div>
+                                <button 
+                                    onClick={handleUndoDelete}
+                                    className="bg-blue-600 hover:bg-blue-500 text-white text-xs font-bold px-4 py-2 rounded-md transition-colors shadow-lg"
+                                >
+                                    DESFAZER
+                                </button>
+                                <button onClick={() => setShowUndoToast(false)} className="text-slate-400 hover:text-white p-1">
+                                    <span className="material-symbols-outlined text-sm">close</span>
+                                </button>
+                            </div>
                         </div>
                     )}
                 </div>
