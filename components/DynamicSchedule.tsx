@@ -59,7 +59,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
     const [currentDate, setCurrentDate] = useState(new Date());
     const [isSidebarOpen, setIsSidebarOpen] = useState(false);
     const [showToast, setShowToast] = useState(false);
-    const [expandedDays, setExpandedDays] = useState<Set<number>>(new Set());
+    const [selectedDay, setSelectedDay] = useState<number | null>(null); // State para o Modal
     const [dailyTimeMinutes, setDailyTimeMinutes] = useState(user?.dailyAvailableTimeMinutes || 240);
 
     useEffect(() => {
@@ -116,15 +116,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
         setTimeout(() => setShowToast(false), 3000);
     };
 
-    const toggleDayExpansion = (day: number) => {
-        setExpandedDays(prev => {
-            const newSet = new Set(prev);
-            if (newSet.has(day)) newSet.delete(day);
-            else newSet.add(day);
-            return newSet;
-        });
-    };
-
     const monthNames = ["Janeiro", "Fevereiro", "Março", "Abril", "Maio", "Junho", "Julho", "Agosto", "Setembro", "Outubro", "Novembro", "Dezembro"];
     const weekDays = ["Dom", "Seg", "Ter", "Qua", "Qui", "Sex", "Sáb"];
     const getDaysInMonth = (year: number, month: number) => new Date(year, month + 1, 0).getDate();
@@ -134,7 +125,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
     // UTILIZANDO O AGENDADOR CENTRALIZADO (Híbrido)
     // =========================================================
     const scheduleData = useMemo(() => {
-        // Filtrar apenas matérias selecionadas para o agendamento
         const planSubjects = activeSubjects.filter(s => selectedSubjectIds.has(s.id));
         
         return generateMonthlySchedule(
@@ -145,8 +135,8 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                 subjectsPerDay, 
                 srsPace, 
                 srsMode, 
-                activeWeekDays, // AGORA PASSADO DIRETAMENTE (Independente do toggle SRS)
-                enableSRS: enableSpacedRepetition // Flag específica para controlar revisões
+                activeWeekDays,
+                enableSRS: enableSpacedRepetition
             },
             dailyTimeMinutes
         );
@@ -191,7 +181,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                     </span>
                 </div>
                 {item.topic && (
-                    <div className={`text-[10px] truncate border-l border-current mt-0.5 pl-5 ${isPast ? 'line-through opacity-70' : 'opacity-80'}`}>
+                    <div className={`text-[10px] truncate border-l border-current mt-0.5 pl-2 ml-1 ${isPast ? 'line-through opacity-70' : 'opacity-80'}`}>
                         {item.topic.name}
                     </div>
                 )}
@@ -227,21 +217,22 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
             const isDayOff = dayData === null;
             const itemsForDay = dayData || [];
             
-            // Lógica de Expansão
-            const isExpanded = expandedDays.has(day);
+            // Preview Logic
             const PREVIEW_LIMIT = 2;
-            const visibleItems = isExpanded ? itemsForDay : itemsForDay.slice(0, PREVIEW_LIMIT);
+            const visibleItems = itemsForDay.slice(0, PREVIEW_LIMIT);
             const remainingCount = itemsForDay.length - PREVIEW_LIMIT;
-            const showToggle = itemsForDay.length > PREVIEW_LIMIT;
             
             const totalMinutes = itemsForDay.reduce((acc, i) => acc + (i.durationMinutes || 0), 0);
             const hours = Math.floor(totalMinutes / 60);
             const mins = totalMinutes % 60;
 
             return (
-                <div key={day} className={`min-h-[160px] border-t border-l border-border-light dark:border-border-dark p-2 flex flex-col gap-1 transition-colors hover:bg-gray-50 dark:hover:bg-white/5 
+                <div 
+                    key={day} 
+                    onClick={() => !isDayOff && itemsForDay.length > 0 && setSelectedDay(day)}
+                    className={`min-h-[160px] border-t border-l border-border-light dark:border-border-dark p-2 flex flex-col gap-1 transition-all
                     ${isToday ? 'bg-primary/5 dark:bg-primary/10 ring-1 ring-inset ring-primary' : isPast ? 'bg-gray-50/30 dark:bg-black/20' : 'bg-card-light dark:bg-card-dark'}
-                    ${isDayOff ? 'bg-striped opacity-60' : ''}
+                    ${isDayOff ? 'bg-striped opacity-60 cursor-default' : 'hover:bg-gray-50 dark:hover:bg-white/5 cursor-pointer'}
                 `}>
                     <div className="flex justify-between items-start">
                         <span className={`text-sm font-bold w-6 h-6 flex items-center justify-center rounded-full ${isToday ? 'bg-primary text-white' : isPast ? 'text-gray-400' : 'text-text-secondary-light dark:text-text-secondary-dark'}`}>
@@ -259,33 +250,19 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                         )}
                     </div>
                     
-                    <div className={`flex flex-col gap-1.5 mt-1 transition-all ${isExpanded ? 'overflow-y-auto max-h-[160px] custom-scrollbar pr-1' : 'overflow-hidden'}`}>
+                    <div className="flex flex-col gap-1.5 mt-1 overflow-hidden">
                         {visibleItems.map((item, idx) => renderScheduleItem(item, idx, isPast))}
+                        {itemsForDay.length > PREVIEW_LIMIT && (
+                            <div className="text-[10px] text-center text-primary font-bold bg-primary/5 rounded py-1">
+                                +{remainingCount} itens
+                            </div>
+                        )}
                         {isPast && itemsForDay.length === 0 && !isDayOff && (
                             <div className="text-[10px] text-gray-300 dark:text-gray-700 text-center italic mt-2">
                                 Sem registros
                             </div>
                         )}
                     </div>
-
-                    {showToggle && (
-                        <button 
-                            onClick={(e) => { e.stopPropagation(); toggleDayExpansion(day); }}
-                            className={`w-full text-[10px] font-bold py-1 rounded transition-colors mt-auto flex items-center justify-center gap-1 ${isExpanded ? 'bg-gray-200 dark:bg-gray-700 text-gray-600 dark:text-gray-300' : 'bg-primary/10 text-primary hover:bg-primary/20'}`}
-                        >
-                            {isExpanded ? (
-                                <>
-                                    <span className="material-symbols-outlined text-[12px]">expand_less</span>
-                                    Recolher
-                                </>
-                            ) : (
-                                <>
-                                    <span className="material-symbols-outlined text-[12px]">expand_more</span>
-                                    + {remainingCount}
-                                </>
-                            )}
-                        </button>
-                    )}
                 </div>
             );
         });
@@ -304,12 +281,11 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
             const day = i + 1;
             const dayData = scheduleData[day];
             
-            // Mostra se tiver dados OU se for Hoje/Futuro Próximo
             const dateObj = new Date(year, month, day);
             const isToday = day === now.getDate() && month === now.getMonth() && year === now.getFullYear();
             const isPast = dateObj < now;
             
-            if ((!dayData || dayData.length === 0) && !isToday && isPast) return null; // Esconde passado vazio no mobile
+            if ((!dayData || dayData.length === 0) && !isToday && isPast) return null; 
 
             const itemsForDay = dayData || [];
             const weekDayName = weekDays[dateObj.getDay()];
@@ -346,6 +322,79 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
 
     return (
         <div className="flex h-full overflow-hidden relative">
+            {/* Modal de Detalhes do Dia (Centralizado) */}
+            {selectedDay !== null && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200" onClick={() => setSelectedDay(null)}>
+                    <div className="bg-white dark:bg-[#1e1e2d] w-full max-w-lg rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 flex flex-col max-h-[85vh] overflow-hidden" onClick={(e) => e.stopPropagation()}>
+                        <div className="px-6 py-5 border-b border-gray-100 dark:border-gray-800 flex justify-between items-center bg-gray-50/50 dark:bg-gray-900/50">
+                            <div>
+                                <h3 className="text-2xl font-black text-slate-900 dark:text-white flex items-center gap-2">
+                                    {selectedDay} de {monthNames[currentDate.getMonth()]}
+                                </h3>
+                                <p className="text-xs text-slate-500 uppercase font-bold tracking-wider mt-1">
+                                    {weekDays[new Date(currentDate.getFullYear(), currentDate.getMonth(), selectedDay).getDay()]} • Detalhes do Cronograma
+                                </p>
+                            </div>
+                            <button onClick={() => setSelectedDay(null)} className="p-2 rounded-full hover:bg-gray-200 dark:hover:bg-gray-700 transition-colors">
+                                <span className="material-symbols-outlined">close</span>
+                            </button>
+                        </div>
+                        
+                        <div className="flex-1 overflow-y-auto p-4 custom-scrollbar bg-slate-50 dark:bg-black/20">
+                            <div className="flex flex-col gap-3">
+                                {scheduleData[selectedDay]?.map((item, idx) => {
+                                    const isReview = item.type === 'REVIEW';
+                                    const isTheory = item.type === 'THEORY';
+                                    const borderColor = isReview ? 'border-amber-500' : item.subject.priority === 'HIGH' ? 'border-red-500' : 'border-blue-500';
+                                    const bgClass = isReview ? 'bg-amber-50 dark:bg-amber-900/10' : 'bg-white dark:bg-card-dark';
+
+                                    return (
+                                        <div key={idx} className={`flex gap-4 p-4 rounded-xl border-l-4 ${borderColor} ${bgClass} shadow-sm`}>
+                                            <div className="flex flex-col items-center justify-center min-w-[50px] border-r border-gray-200 dark:border-gray-700 pr-4">
+                                                <span className="text-xl font-black text-slate-700 dark:text-slate-300">{item.durationMinutes}</span>
+                                                <span className="text-[10px] uppercase text-slate-400 font-bold">min</span>
+                                            </div>
+                                            <div className="flex-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    {isReview && <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-600 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Revisão</span>}
+                                                    {isTheory && item.subject.priority === 'HIGH' && <span className="bg-red-100 dark:bg-red-900/30 text-red-600 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Alta Prioridade</span>}
+                                                    {isTheory && item.subject.priority !== 'HIGH' && <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Teoria</span>}
+                                                </div>
+                                                <h4 className="font-bold text-slate-900 dark:text-white text-lg leading-tight">{item.subject.name}</h4>
+                                                {item.topic ? (
+                                                    <p className="text-sm text-slate-600 dark:text-slate-400 mt-1 flex items-start gap-1">
+                                                        <span className="material-symbols-outlined text-[16px] mt-0.5">subdirectory_arrow_right</span>
+                                                        {item.topic.name}
+                                                    </p>
+                                                ) : (
+                                                    <p className="text-sm text-slate-400 italic mt-1">Estudo Geral / Resolução de Questões</p>
+                                                )}
+                                            </div>
+                                        </div>
+                                    );
+                                })}
+                                
+                                {(!scheduleData[selectedDay] || scheduleData[selectedDay]?.length === 0) && (
+                                    <div className="text-center py-12 text-slate-400">
+                                        <span className="material-symbols-outlined text-4xl mb-2">event_busy</span>
+                                        <p>Nenhuma atividade planejada para este dia.</p>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                        
+                        <div className="p-4 bg-white dark:bg-[#1e1e2d] border-t border-gray-100 dark:border-gray-800 flex justify-between items-center text-xs text-slate-500">
+                            <span>
+                                Total: {scheduleData[selectedDay] ? (scheduleData[selectedDay]?.reduce((acc, i) => acc + (i.durationMinutes || 0), 0) / 60).toFixed(1) : 0} horas
+                            </span>
+                            <button onClick={() => setSelectedDay(null)} className="font-bold text-primary hover:underline">
+                                Fechar
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
             {/* TOAST Notification */}
             {showToast && (
                 <div className="absolute top-6 left-1/2 -translate-x-1/2 z-[60] animate-in fade-in slide-in-from-top-4">
