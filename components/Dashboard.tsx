@@ -17,7 +17,7 @@ interface TopicNode {
     originalTopic: Topic;
     status: TopicStatus;
     accuracy: number;
-    timeSpent: number; // Novo campo
+    timeSpent: number;
 }
 
 interface TopicGroup {
@@ -616,15 +616,22 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                                                     onClick={() => setExpandedSubjectMap(isExpanded ? null : subject.id)}
                                                     className={`w-full flex items-center justify-between p-3 transition-colors ${isExpanded ? 'bg-slate-50 dark:bg-slate-800/50' : 'bg-white dark:bg-card-dark hover:bg-slate-50 dark:hover:bg-slate-800/30'}`}
                                                 >
-                                                    <div className="flex items-center gap-3">
-                                                        <div className={`size-8 rounded flex items-center justify-center bg-${subject.color || 'blue'}-100 dark:bg-${subject.color || 'blue'}-900/30 text-${subject.color || 'blue'}-600`}>
+                                                    <div className="flex items-center gap-3 overflow-hidden flex-1">
+                                                        <div className={`size-8 rounded flex items-center justify-center shrink-0 bg-${subject.color || 'blue'}-100 dark:bg-${subject.color || 'blue'}-900/30 text-${subject.color || 'blue'}-600`}>
                                                             <span className="material-symbols-outlined text-sm">{getSubjectIcon(subject.name)}</span>
                                                         </div>
-                                                        <div className="flex flex-col items-start">
-                                                            <span className="font-bold text-sm text-slate-900 dark:text-white">{subject.name}</span>
-                                                            <div className="flex items-center gap-3 mt-0.5">
+                                                        <div className="flex flex-col items-start min-w-0 flex-1">
+                                                            <div className="flex items-center gap-2 mb-1 w-full">
+                                                                <span className="font-bold text-sm text-slate-900 dark:text-white truncate" title={subject.name}>{subject.name}</span>
+                                                                {subject.weight !== undefined && (
+                                                                    <span className="shrink-0 text-[9px] font-black uppercase bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded">
+                                                                        Peso {subject.weight}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                            <div className="flex items-center gap-3 w-full">
                                                                 {/* Progresso */}
-                                                                <div className="flex items-center gap-1.5">
+                                                                <div className="flex items-center gap-1.5 shrink-0">
                                                                     <div className="w-16 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
                                                                         <div className={`h-full bg-${subject.color || 'blue'}-500`} style={{ width: `${progressPct}%` }}></div>
                                                                     </div>
@@ -633,13 +640,13 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                                                                 
                                                                 {/* Métricas Agregadas no Header */}
                                                                 {subjectTotalMinutes > 0 && (
-                                                                    <div className="flex items-center gap-1 text-[9px] font-mono text-slate-400 border-l border-slate-200 dark:border-slate-700 pl-2">
+                                                                    <div className="flex items-center gap-1 text-[9px] font-mono text-slate-400 border-l border-slate-200 dark:border-slate-700 pl-2 shrink-0">
                                                                         <span className="material-symbols-outlined text-[10px]">schedule</span>
                                                                         {subjectTotalMinutes}m
                                                                     </div>
                                                                 )}
                                                                 {subjectTotalQuestions > 0 && (
-                                                                    <div className={`flex items-center gap-1 text-[9px] font-bold ${subjectAccuracy >= 80 ? 'text-green-500' : subjectAccuracy >= 60 ? 'text-yellow-500' : 'text-red-500'}`}>
+                                                                    <div className={`flex items-center gap-1 text-[9px] font-bold border-l border-slate-200 dark:border-slate-700 pl-2 shrink-0 ${subjectAccuracy >= 80 ? 'text-green-600 dark:text-green-400' : subjectAccuracy >= 60 ? 'text-yellow-600 dark:text-yellow-400' : 'text-red-600 dark:text-red-400'}`}>
                                                                         <span className="material-symbols-outlined text-[10px]">target</span>
                                                                         {subjectAccuracy}%
                                                                     </div>
@@ -647,7 +654,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                                                             </div>
                                                         </div>
                                                     </div>
-                                                    <span className="material-symbols-outlined text-slate-400">{isExpanded ? 'expand_less' : 'expand_more'}</span>
+                                                    <span className="material-symbols-outlined text-slate-400 ml-2 shrink-0">{isExpanded ? 'expand_less' : 'expand_more'}</span>
                                                 </button>
 
                                                 {/* Expandable Content (Topics) */}
