@@ -160,21 +160,17 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
     const renderScheduleItem = (item: ScheduleItem, idx: number, isPast: boolean) => {
         const sub = item.subject;
         const isReview = item.type === 'REVIEW';
+        const color = sub.color || 'blue'; // Usa a cor da disciplina
         
         const pastStyle = "bg-gray-100 dark:bg-gray-800 text-gray-500 border-gray-300 dark:border-gray-700 opacity-80";
-        const futureStyle = isReview 
-            ? 'bg-amber-50 dark:bg-amber-900/20 text-amber-800 dark:text-amber-200 border-amber-500' 
-            : sub.priority === 'HIGH' 
-                ? 'bg-red-50 dark:bg-red-900/20 text-red-700 dark:text-red-300 border-red-500' 
-                : sub.priority === 'LOW' 
-                    ? 'bg-green-50 dark:bg-green-900/20 text-green-700 dark:text-green-300 border-green-500' 
-                    : 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300 border-blue-500';
+        // Estilo futuro usa a cor da disciplina para bg, texto e borda
+        const futureStyle = `bg-${color}-50 dark:bg-${color}-900/20 text-${color}-700 dark:text-${color}-300 border-${color}-500`;
 
         return (
             <div key={`${sub.id}-${idx}`} className={`text-[10px] md:text-xs px-3 py-2 rounded-lg border-l-4 font-medium flex flex-col justify-center group shadow-sm transition-transform relative ${isPast ? pastStyle : futureStyle}`}>
                 <div className="flex items-center gap-2 mb-1">
                     <span className="material-symbols-outlined text-[14px]">
-                        {isPast ? 'check_circle' : (isReview ? 'cached' : 'menu_book')}
+                        {isPast ? 'check_circle' : (isReview ? 'cached' : getSubjectIcon(sub.name))}
                     </span>
                     <span className="truncate font-bold text-sm">
                         {sub.name}
@@ -190,6 +186,9 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                 )}
                 <div className="flex justify-between items-center mt-1 pl-1 opacity-70">
                     <span className="font-mono text-[10px]">{item.durationMinutes} min</span>
+                    {isReview && !isPast && (
+                        <span className="text-[8px] uppercase font-bold bg-white/50 px-1 rounded">Revisão</span>
+                    )}
                     {isPast && <span className="text-[9px] uppercase font-bold">Realizado</span>}
                 </div>
             </div>
@@ -345,8 +344,11 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                                 {scheduleData[selectedDay]?.map((item, idx) => {
                                     const isReview = item.type === 'REVIEW';
                                     const isTheory = item.type === 'THEORY';
-                                    const borderColor = isReview ? 'border-amber-500' : item.subject.priority === 'HIGH' ? 'border-red-500' : 'border-blue-500';
-                                    const bgClass = isReview ? 'bg-amber-50 dark:bg-amber-900/10' : 'bg-white dark:bg-card-dark';
+                                    const color = item.subject.color || 'blue';
+                                    
+                                    // Cores dinâmicas baseadas na disciplina
+                                    const borderColor = `border-${color}-500`;
+                                    const bgClass = `bg-${color}-50 dark:bg-${color}-900/10`;
 
                                     return (
                                         <div key={idx} className={`flex gap-4 p-4 rounded-xl border-l-4 ${borderColor} ${bgClass} shadow-sm`}>
@@ -356,9 +358,9 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                                             </div>
                                             <div className="flex-1">
                                                 <div className="flex items-center gap-2 mb-1">
-                                                    {isReview && <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-600 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Revisão</span>}
+                                                    {isReview && <span className="bg-amber-100 dark:bg-amber-900/30 text-amber-600 text-[10px] px-2 py-0.5 rounded font-bold uppercase flex items-center gap-1"><span className="material-symbols-outlined text-[12px]">cached</span> Revisão</span>}
                                                     {isTheory && item.subject.priority === 'HIGH' && <span className="bg-red-100 dark:bg-red-900/30 text-red-600 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Alta Prioridade</span>}
-                                                    {isTheory && item.subject.priority !== 'HIGH' && <span className="bg-blue-100 dark:bg-blue-900/30 text-blue-600 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Teoria</span>}
+                                                    {isTheory && item.subject.priority !== 'HIGH' && <span className="bg-white/50 text-slate-500 text-[10px] px-2 py-0.5 rounded font-bold uppercase">Teoria</span>}
                                                 </div>
                                                 <h4 className="font-bold text-slate-900 dark:text-white text-lg leading-tight">{item.subject.name}</h4>
                                                 {item.topic ? (
@@ -759,20 +761,12 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                     {/* Legenda */}
                     <div className="hidden md:flex flex-wrap gap-4 mt-4 px-2">
                         <div className="flex items-center gap-2 text-xs">
-                            <span className="w-3 h-3 rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-500"></span>
-                            <span className="text-text-secondary-light dark:text-text-secondary-dark">Revisão</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs">
-                            <span className="w-3 h-3 rounded bg-red-50 dark:bg-red-900/20 border border-red-500"></span>
-                            <span className="text-text-secondary-light dark:text-text-secondary-dark">Alta Prioridade</span>
-                        </div>
-                        <div className="flex items-center gap-2 text-xs">
-                            <span className="w-3 h-3 rounded bg-blue-50 dark:bg-blue-900/20 border border-blue-500"></span>
-                            <span className="text-text-secondary-light dark:text-text-secondary-dark">Planejado (Teoria)</span>
+                            <span className="w-3 h-3 rounded bg-gray-200 dark:bg-gray-700 border border-gray-400 dark:border-gray-500"></span>
+                            <span className="text-text-secondary-light dark:text-text-secondary-dark">Realizado (Histórico)</span>
                         </div>
                         <div className="flex items-center gap-2 text-xs ml-4">
-                            <span className="w-3 h-3 rounded bg-gray-200 dark:bg-gray-700"></span>
-                            <span className="text-text-secondary-light dark:text-text-secondary-dark">Histórico (Realizado)</span>
+                            <span className="material-symbols-outlined text-[14px]">cached</span>
+                            <span className="text-text-secondary-light dark:text-text-secondary-dark">Indica Revisão</span>
                         </div>
                     </div>
                 </div>
