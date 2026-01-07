@@ -61,6 +61,9 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
     const [showToast, setShowToast] = useState(false);
     const [selectedDay, setSelectedDay] = useState<number | null>(null); // State para o Modal
     const [dailyTimeMinutes, setDailyTimeMinutes] = useState(user?.dailyAvailableTimeMinutes || 240);
+    
+    // Novo State para controlar qual disciplina está expandida na sidebar
+    const [expandedConfigId, setExpandedConfigId] = useState<string | null>(null);
 
     useEffect(() => {
         if (user && onUpdateUser && dailyTimeMinutes !== user.dailyAvailableTimeMinutes) {
@@ -524,7 +527,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                         )}
                     </div>
 
-                    {/* RESTO DOS CONTROLES (MANTIDOS IGUAIS) */}
                     <div className="h-px bg-border-light dark:bg-border-dark w-full"></div>
 
                     {/* Controle de Dias da Semana */}
@@ -559,55 +561,57 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                         </p>
                     </div>
 
-                    {/* Controle de Tempo Diário */}
+                    {/* UNIFICADO: Metas Diárias (Tempo + Matérias Novas) */}
                     <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg border border-border-light dark:border-border-dark">
-                         <div className="flex items-center gap-2 mb-3">
-                            <div className="bg-primary/10 p-1.5 rounded text-primary">
-                                <span className="material-symbols-outlined text-lg">schedule</span>
+                         <div className="flex items-center gap-2 mb-4">
+                            <div className="bg-blue-100 dark:bg-blue-900/30 p-1.5 rounded text-blue-600">
+                                <span className="material-symbols-outlined text-lg">track_changes</span>
                             </div>
-                            <label className="text-sm font-bold text-text-primary-light dark:text-white">Tempo Disponível / Dia</label>
+                            <label className="text-sm font-bold text-text-primary-light dark:text-white">Metas Diárias</label>
                         </div>
-                         <div className="flex justify-between items-end mb-2">
-                            <span className="text-xs text-text-secondary-light dark:text-text-secondary-dark">Total horas líquidas</span>
-                            <span className="text-xl font-black text-primary">{(dailyTimeMinutes / 60).toFixed(1)}h <span className="text-sm font-normal text-gray-400">({dailyTimeMinutes} min)</span></span>
-                         </div>
-                        <input 
-                            type="range" 
-                            min="60" 
-                            max="600" 
-                            step="30" 
-                            value={dailyTimeMinutes} 
-                            onChange={(e) => setDailyTimeMinutes(parseInt(e.target.value))}
-                            className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
-                        />
-                    </div>
+                        
+                        <div className="flex flex-col gap-5">
+                            {/* Controle de Tempo */}
+                            <div className="flex flex-col gap-2">
+                                <div className="flex justify-between items-end">
+                                    <span className="text-xs font-bold text-gray-500 uppercase">Tempo Disponível</span>
+                                    <span className="text-sm font-black text-primary">{(dailyTimeMinutes / 60).toFixed(1)}h <span className="text-xs font-medium text-gray-400">({dailyTimeMinutes}m)</span></span>
+                                </div>
+                                <input 
+                                    type="range" 
+                                    min="60" 
+                                    max="600" 
+                                    step="30" 
+                                    value={dailyTimeMinutes} 
+                                    onChange={(e) => setDailyTimeMinutes(parseInt(e.target.value))}
+                                    className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-primary"
+                                />
+                            </div>
 
-                    {/* Controle de Matérias por Dia */}
-                    <div className="bg-background-light dark:bg-background-dark p-4 rounded-lg border border-border-light dark:border-border-dark">
-                         <div className="flex items-center gap-2 mb-3">
-                            <div className="bg-orange-100 dark:bg-orange-900/30 p-1.5 rounded text-orange-600">
-                                <span className="material-symbols-outlined text-lg">layers</span>
+                            <div className="h-px bg-gray-200 dark:bg-gray-700 w-full"></div>
+
+                            {/* Controle de Matérias */}
+                            <div className="flex flex-col gap-2">
+                                <div className="flex justify-between items-end">
+                                    <span className="text-xs font-bold text-gray-500 uppercase">Novas Matérias / Dia</span>
+                                    <span className="text-sm font-black text-orange-500">{subjectsPerDay}</span>
+                                </div>
+                                <input 
+                                    type="range" 
+                                    min="1" 
+                                    max="8" 
+                                    step="1" 
+                                    value={subjectsPerDay} 
+                                    onChange={(e) => updateSetting('subjectsPerDay', parseInt(e.target.value))}
+                                    className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
+                                />
                             </div>
-                            <label className="text-sm font-bold text-text-primary-light dark:text-white">Matérias Novas / Dia</label>
                         </div>
-                         <div className="flex justify-between items-end mb-2">
-                            <span className="text-xs text-text-secondary-light dark:text-text-secondary-dark">Foco Simultâneo</span>
-                            <span className="text-xl font-black text-orange-500">{subjectsPerDay}</span>
-                         </div>
-                        <input 
-                            type="range" 
-                            min="1" 
-                            max="8" 
-                            step="1" 
-                            value={subjectsPerDay} 
-                            onChange={(e) => updateSetting('subjectsPerDay', parseInt(e.target.value))}
-                            className="w-full h-2 bg-gray-200 dark:bg-gray-700 rounded-lg appearance-none cursor-pointer accent-orange-500"
-                        />
                     </div>
 
                     <div className="h-px bg-border-light dark:bg-border-dark w-full my-2"></div>
 
-                    {/* Lista de Configuração Individual */}
+                    {/* Lista de Configuração Individual (COM ACCORDION) */}
                     <div className="flex flex-col gap-3">
                          <div className="flex items-center justify-between">
                             <label className="text-xs font-bold uppercase text-text-secondary-light dark:text-text-secondary-dark">Configuração Individual</label>
@@ -616,20 +620,25 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                             </span>
                          </div>
                          
-                         <div className="flex flex-col gap-3 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
+                         <div className="flex flex-col gap-2 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
                              {activeSubjects.map(subject => {
                                  const isSelected = selectedSubjectIds.has(subject.id);
+                                 const isExpanded = expandedConfigId === subject.id;
                                  const pWeight = subject.priority === 'HIGH' ? 3 : subject.priority === 'LOW' ? 1 : 2;
                                  const kWeight = subject.proficiency === 'BEGINNER' ? 3 : subject.proficiency === 'ADVANCED' ? 1 : 2;
                                  const totalWeight = pWeight * kWeight;
                                  
                                  return (
-                                     <div key={subject.id} className={`p-3 rounded-lg border transition-all duration-200 ${isSelected ? 'border-primary/30 bg-background-light dark:bg-background-dark/50' : 'border-border-light dark:border-border-dark bg-gray-50/50 dark:bg-white/5 opacity-70 grayscale-[0.3]'}`}>
-                                         <div className="flex justify-between items-center mb-3">
-                                             <div className="flex items-center gap-2 max-w-[90%]">
+                                     <div key={subject.id} className={`rounded-lg border transition-all duration-200 overflow-hidden ${isSelected ? 'border-primary/30 bg-background-light dark:bg-background-dark/50' : 'border-border-light dark:border-border-dark bg-gray-50/50 dark:bg-white/5 opacity-70 grayscale-[0.3]'}`}>
+                                         <div 
+                                            className={`flex justify-between items-center p-3 cursor-pointer ${isSelected ? 'hover:bg-primary/5' : ''}`}
+                                            onClick={() => isSelected && setExpandedConfigId(isExpanded ? null : subject.id)}
+                                         >
+                                             <div className="flex items-center gap-2 max-w-[85%]">
                                                  <input 
                                                     type="checkbox"
                                                     checked={isSelected}
+                                                    onClick={(e) => e.stopPropagation()} // Impede que o clique no checkbox abra o accordion
                                                     onChange={() => toggleSubjectSelection(subject.id)}
                                                     className="size-4 rounded border-gray-300 text-primary focus:ring-primary/50 cursor-pointer"
                                                  />
@@ -640,52 +649,63 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                                                      {subject.name}
                                                  </span>
                                              </div>
-                                             {isSelected && (
-                                                 <div className="text-[9px] font-bold px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300" title="Peso no Algoritmo">
-                                                     {totalWeight}x Freq
-                                                 </div>
-                                             )}
+                                             {isSelected ? (
+                                                 <span className="material-symbols-outlined text-gray-400 text-[18px] transition-transform duration-200" style={{transform: isExpanded ? 'rotate(180deg)' : 'rotate(0deg)'}}>
+                                                     expand_more
+                                                 </span>
+                                             ) : null}
                                          </div>
                                          
-                                         {isSelected && (
-                                            <div className="flex flex-col gap-3 animate-in fade-in duration-300">
-                                                <div className="flex flex-col gap-1">
-                                                    <span className="text-[9px] text-gray-400 uppercase font-semibold">Prioridade (Edital)</span>
-                                                    <div className="flex bg-gray-200 dark:bg-gray-800 rounded p-0.5">
-                                                        {(['LOW', 'MEDIUM', 'HIGH'] as PriorityLevel[]).map((level) => (
-                                                            <button
-                                                                key={level}
-                                                                onClick={() => handlePriorityChange(subject, level)}
-                                                                className={`flex-1 text-[9px] font-bold py-1 rounded transition-colors ${
-                                                                    (subject.priority || 'MEDIUM') === level 
-                                                                        ? level === 'HIGH' ? 'bg-red-500 text-white shadow-sm' 
-                                                                        : level === 'LOW' ? 'bg-green-500 text-white shadow-sm'
-                                                                        : 'bg-blue-500 text-white shadow-sm'
-                                                                        : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                                                                }`}
-                                                            >
-                                                                {level === 'HIGH' ? 'Alta' : level === 'MEDIUM' ? 'Média' : 'Baixa'}
-                                                            </button>
-                                                        ))}
-                                                    </div>
+                                         {/* ÁREA EXPANSÍVEL (ACCORDION) */}
+                                         {isSelected && isExpanded && (
+                                            <div className="p-3 pt-0 border-t border-gray-100 dark:border-gray-800/50 bg-gray-50/30 dark:bg-black/10 animate-in slide-in-from-top-1">
+                                                
+                                                <div className="flex justify-between items-center mb-3 mt-2">
+                                                    <span className="text-[10px] text-gray-400 uppercase font-semibold">Peso do Algoritmo</span>
+                                                    <span className="text-[9px] font-bold px-2 py-0.5 rounded bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300">
+                                                        {totalWeight}x Frequência
+                                                    </span>
                                                 </div>
 
-                                                <div className="flex flex-col gap-1">
-                                                    <span className="text-[9px] text-gray-400 uppercase font-semibold">Nível de Domínio (Você)</span>
-                                                    <div className="flex bg-gray-200 dark:bg-gray-800 rounded p-0.5">
-                                                        {(['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as ProficiencyLevel[]).map((level) => (
-                                                            <button
-                                                                key={level}
-                                                                onClick={() => handleProficiencyChange(subject, level)}
-                                                                className={`flex-1 text-[9px] font-bold py-1 rounded transition-colors ${
-                                                                    (subject.proficiency || 'INTERMEDIATE') === level 
-                                                                        ? 'bg-indigo-500 text-white shadow-sm' 
-                                                                        : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
-                                                                }`}
-                                                            >
-                                                                {level === 'BEGINNER' ? 'Iniciante' : level === 'INTERMEDIATE' ? 'Médio' : 'Avançado'}
-                                                            </button>
-                                                        ))}
+                                                <div className="flex flex-col gap-3">
+                                                    <div className="flex flex-col gap-1">
+                                                        <span className="text-[9px] text-gray-400 uppercase font-semibold">Prioridade (Edital)</span>
+                                                        <div className="flex bg-gray-200 dark:bg-gray-800 rounded p-0.5">
+                                                            {(['LOW', 'MEDIUM', 'HIGH'] as PriorityLevel[]).map((level) => (
+                                                                <button
+                                                                    key={level}
+                                                                    onClick={() => handlePriorityChange(subject, level)}
+                                                                    className={`flex-1 text-[9px] font-bold py-1.5 rounded transition-colors ${
+                                                                        (subject.priority || 'MEDIUM') === level 
+                                                                            ? level === 'HIGH' ? 'bg-red-500 text-white shadow-sm' 
+                                                                            : level === 'LOW' ? 'bg-green-500 text-white shadow-sm'
+                                                                            : 'bg-blue-500 text-white shadow-sm'
+                                                                            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                                                                    }`}
+                                                                >
+                                                                    {level === 'HIGH' ? 'Alta' : level === 'MEDIUM' ? 'Média' : 'Baixa'}
+                                                                </button>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+
+                                                    <div className="flex flex-col gap-1">
+                                                        <span className="text-[9px] text-gray-400 uppercase font-semibold">Nível de Domínio (Você)</span>
+                                                        <div className="flex bg-gray-200 dark:bg-gray-800 rounded p-0.5">
+                                                            {(['BEGINNER', 'INTERMEDIATE', 'ADVANCED'] as ProficiencyLevel[]).map((level) => (
+                                                                <button
+                                                                    key={level}
+                                                                    onClick={() => handleProficiencyChange(subject, level)}
+                                                                    className={`flex-1 text-[9px] font-bold py-1.5 rounded transition-colors ${
+                                                                        (subject.proficiency || 'INTERMEDIATE') === level 
+                                                                            ? 'bg-indigo-500 text-white shadow-sm' 
+                                                                            : 'text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'
+                                                                    }`}
+                                                                >
+                                                                    {level === 'BEGINNER' ? 'Iniciante' : level === 'INTERMEDIATE' ? 'Médio' : 'Avançado'}
+                                                                </button>
+                                                            ))}
+                                                        </div>
                                                     </div>
                                                 </div>
                                             </div>
