@@ -199,17 +199,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
         let subQuestions = 0;
         let subCorrect = 0;
         let subMinutes = 0;
+        let lastSessionDate: Date | null = null;
 
         if (sub.logs && Array.isArray(sub.logs)) {
             sub.logs.forEach(log => {
                 subQuestions += (log.questionsCount || 0);
                 subCorrect += (log.correctCount || 0);
                 subMinutes += (log.durationMinutes || 0);
+                
+                const logDate = new Date(log.date);
+                if (!lastSessionDate || logDate > lastSessionDate) {
+                    lastSessionDate = logDate;
+                }
             });
         }
 
         const accuracy = subQuestions > 0 ? Math.round((subCorrect / subQuestions) * 100) : 0;
         const explicitErrors = errorLogs.filter(e => e.subjectId === sub.id).length;
+        
+        // Cálculo de dias desde o último estudo
+        const daysSinceLastStudy = lastSessionDate 
+            ? Math.floor((new Date().getTime() - lastSessionDate.getTime()) / (1000 * 3600 * 24)) 
+            : null;
 
         totalQuestions += subQuestions;
         totalCorrect += subCorrect;
@@ -223,19 +234,30 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
             correct: subCorrect,
             accuracy: accuracy,
             minutes: subMinutes,
-            explicitErrors: explicitErrors
+            explicitErrors: explicitErrors,
+            daysSinceLastStudy: daysSinceLastStudy !== null ? daysSinceLastStudy : 'Nunca',
+            rawDaysSince: daysSinceLastStudy !== null ? daysSinceLastStudy : 999
         };
     }).sort((a, b) => b.minutes - a.minutes); 
 
     const attentionRanking = performanceBySubject
         .map(sub => {
             let urgencyScore = 0;
+            // Fator Acurácia
             if (sub.questions > 0) {
                 urgencyScore += (100 - sub.accuracy) * 1.5; 
             } else if (sub.minutes > 60) {
-                urgencyScore += 30;
+                urgencyScore += 30; // Estudou muito mas não fez questão
             }
+            
+            // Fator Erros Críticos
             urgencyScore += (sub.explicitErrors * 10); 
+            
+            // Fator "Esquecimento" (Recência) - Novo
+            if (typeof sub.rawDaysSince === 'number' && sub.rawDaysSince > 7) {
+                urgencyScore += (sub.rawDaysSince * 2); // Aumenta urgência a cada dia sem ver
+            }
+
             if (sub.minutes > 120 && sub.accuracy < 60) urgencyScore += 50;
             return { ...sub, urgencyScore };
         })
@@ -290,11 +312,49 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
         if (!user.openAiApiKey) return alert("Configure a API Key no perfil.");
         setIsGeneratingInsight(true);
         try {
-            const prompt = `Analise: ${JSON.stringify(data.attentionRanking)}. Dê dicas rápidas de estudo em HTML (ul/li/strong).`;
+            // Prompt enriquecido com "Explainable AI" e "Decision Justification"
+            const subjectsContext = data.attentionRanking.map(s => ({
+                Materia: s.name,
+                Acuracia: `${s.accuracy}% (Baseado em ${s.questions} questões)`,
+                TempoTotal: `${s.minutes} min`,
+                Recencia: typeof s.daysSinceLastStudy === 'number' ? `${s.daysSinceLastStudy} dias sem ver` : 'Nunca estudado',
+                ErrosCriticos: s.explicitErrors
+            }));
+
+            const prompt = `
+                Você é o motor de inteligência do StudyFlow. Sua função NÃO é apenas dar dicas, é EXPLICAR POR QUE certas matérias estão no 'Radar de Atenção'.
+                
+                DADOS CRÍTICOS IDENTIFICADOS PELO SISTEMA:
+                ${JSON.stringify(subjectsContext)}
+
+                OBJETIVO:
+                Para cada matéria crítica listada, forneça uma justificativa analítica curta no formato: "Priorizada porque [motivo baseado nos dados]".
+                
+                REGRAS RÍGIDAS:
+                1. Use os dados exatos (Ex: "errou 60% das questões", "está há 18 dias sem revisão", "tem 5 erros críticos registrados").
+                2. Seja direto e cirúrgico. Sem "Olá", sem "Tudo bem". Vá direto ao ponto.
+                3. Formate a resposta em HTML simples (<ul>, <li>, <strong>).
+                4. Se a recência for alta (> 7 dias), destaque isso como perigo de esquecimento.
+                5. Se a acurácia for baixa (< 60%), destaque como lacuna de aprendizado.
+
+                Exemplo de Saída Esperada:
+                <ul>
+                  <li><strong>Direito Constitucional:</strong> Priorizado porque sua acurácia caiu para 45% e você não revisa este conteúdo há 12 dias. Risco alto de esquecimento.</li>
+                  <li><strong>Raciocínio Lógico:</strong> Alerta devido a 8 erros críticos registrados no caderno, apesar do tempo de estudo ser baixo.</li>
+                </ul>
+            `;
+
             const response = await fetch('https://api.openai.com/v1/chat/completions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${user.openAiApiKey}` },
-                body: JSON.stringify({ model: user.openAiModel || 'gpt-4o-mini', messages: [{ role: "system", content: "Mentor." }, { role: "user", content: prompt }] })
+                body: JSON.stringify({ 
+                    model: user.openAiModel || 'gpt-4o-mini', 
+                    messages: [
+                        { role: "system", content: "Você é um analista de dados educacionais focado em explicar decisões algorítmicas." }, 
+                        { role: "user", content: prompt }
+                    ],
+                    temperature: 0.3 // Baixa temperatura para ser mais factual e analítico
+                })
             });
             const resData = await response.json();
             setAiInsight(resData.choices[0].message.content);
@@ -463,7 +523,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                                                 </div>
                                                 <div className="flex items-center gap-4 text-xs text-slate-500">
                                                     <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">close</span>{100 - sub.accuracy}% Erro</span>
-                                                    <span className="flex items-center gap-1"><span className="material-symbols-outlined text-[14px]">schedule</span>{sub.minutes} min</span>
+                                                    <span className="flex items-center gap-1" title="Dias sem estudar"><span className="material-symbols-outlined text-[14px]">history</span>{sub.daysSinceLastStudy}d s/ ver</span>
                                                 </div>
                                             </div>
                                         </div>
@@ -475,11 +535,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                     <div className="lg:col-span-1 bg-gradient-to-br from-indigo-600 to-purple-700 rounded-xl shadow-lg text-white p-6 flex flex-col justify-between">
                         <div>
                             <div className="flex items-center gap-2 mb-3"><span className="material-symbols-outlined text-2xl">psychology</span><h3 className="font-bold text-lg">Diagnóstico IA</h3></div>
-                            {aiInsight ? (<div className="text-sm leading-relaxed opacity-90 max-h-[200px] overflow-y-auto custom-scrollbar pr-2" dangerouslySetInnerHTML={{ __html: aiInsight }}></div>) : (<p className="text-sm opacity-80">Peça à IA para analisar seus dados de erro e sugerir uma estratégia de recuperação para as disciplinas críticas.</p>)}
+                            {aiInsight ? (<div className="text-sm leading-relaxed opacity-90 max-h-[200px] overflow-y-auto custom-scrollbar pr-2" dangerouslySetInnerHTML={{ __html: aiInsight }}></div>) : (<p className="text-sm opacity-80">Peça à IA para explicar POR QUE esses tópicos foram priorizados (ex: "Você errou 60% e não vê há 18 dias").</p>)}
                         </div>
                         <button onClick={generateAiInsights} disabled={isGeneratingInsight || data.attentionRanking.length === 0} className="mt-4 w-full py-2.5 bg-white/20 hover:bg-white/30 disabled:opacity-50 disabled:cursor-not-allowed rounded-lg font-bold text-sm backdrop-blur-sm transition-all flex items-center justify-center gap-2">
                             {isGeneratingInsight ? (<span className="size-4 border-2 border-white/50 border-t-white rounded-full animate-spin"></span>) : (<span className="material-symbols-outlined text-[18px]">auto_awesome</span>)}
-                            {isGeneratingInsight ? 'Analisando...' : 'Gerar Estratégia'}
+                            {isGeneratingInsight ? 'Analisando...' : 'Explicar Priorização'}
                         </button>
                     </div>
                 </div>
