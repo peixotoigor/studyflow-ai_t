@@ -5,6 +5,7 @@ export interface ScheduleSettings {
     srsPace: 'ACCELERATED' | 'NORMAL' | 'RELAXED';
     srsMode: 'SMART' | 'MANUAL';
     activeWeekDays: number[];
+    enableSRS?: boolean; // Novo parâmetro
 }
 
 // Gerador de Números Pseudo-Aleatórios (Seeded)
@@ -33,6 +34,7 @@ export const generateMonthlySchedule = (
     targetDayOnly?: number 
 ): Record<number, ScheduleItem[] | null> => {
     const schedule: Record<number, ScheduleItem[] | null> = {};
+    const useSRS = settings.enableSRS !== false; // Default true se não especificado
     
     // 1. Normalização e Ordenação
     const activeSubjects = subjects.filter(s => s.active).sort((a, b) => a.id.localeCompare(b.id));
@@ -109,6 +111,9 @@ export const generateMonthlySchedule = (
     };
 
     const addReview = (targetDay: number, subject: Subject) => {
+        // Se SRS estiver desligado, não adiciona revisões futuras
+        if (!useSRS) return;
+
         if (!pendingReviews[targetDay]) pendingReviews[targetDay] = [];
         // Evita duplicatas de revisão para a mesma matéria no mesmo dia
         if (!pendingReviews[targetDay].some(s => s.id === subject.id)) {
@@ -157,9 +162,10 @@ export const generateMonthlySchedule = (
                             });
 
                             // CRÍTICO: O estudo passado GERA revisões futuras APENAS SE:
-                            // 1. O tópico existe na disciplina
-                            // 2. O tópico está marcado como COMPLETED (garante integridade se usuário desmarcou)
-                            if (realTopic && realTopic.completed) {
+                            // 1. SRS está Ativo (useSRS)
+                            // 2. O tópico existe na disciplina
+                            // 3. O tópico está marcado como COMPLETED (garante integridade se usuário desmarcou)
+                            if (useSRS && realTopic && realTopic.completed) {
                                 const intervals = getReviewIntervals(sub);
                                 intervals.forEach(interval => {
                                     if (day + interval <= daysInMonth + 45) addReview(day + interval, sub);
@@ -181,7 +187,8 @@ export const generateMonthlySchedule = (
         
         if (!isDayActive) {
             schedule[day] = null;
-            if (pendingReviews[day]) {
+            // Mesmo no dia de folga, empurra revisões pendentes APENAS se SRS ativo
+            if (useSRS && pendingReviews[day]) {
                 const nextDay = day + 1;
                 if (!pendingReviews[nextDay]) pendingReviews[nextDay] = [];
                 pendingReviews[day].forEach(r => {
@@ -192,7 +199,7 @@ export const generateMonthlySchedule = (
         }
 
         // 1. Processar Revisões Pendentes (Geradas por Logs Passados ou Teoria Simulada Anterior)
-        if (pendingReviews[day]) {
+        if (useSRS && pendingReviews[day]) {
             pendingReviews[day].forEach(revSub => {
                 dailyItems.push({ subject: revSub, type: 'REVIEW' });
             });
@@ -217,10 +224,13 @@ export const generateMonthlySchedule = (
                 dailyItems.push({ subject: selectedSubject, type: 'THEORY', topic: topic });
 
                 // Agenda revisões futuras (Assume-se que ao agendar teoria no futuro, ela será concluída neste dia)
-                const intervals = getReviewIntervals(selectedSubject);
-                intervals.forEach(interval => {
-                    if (day + interval <= daysInMonth + 30) addReview(day + interval, selectedSubject);
-                });
+                // APENAS se SRS estiver ativo
+                if (useSRS) {
+                    const intervals = getReviewIntervals(selectedSubject);
+                    intervals.forEach(interval => {
+                        if (day + interval <= daysInMonth + 30) addReview(day + interval, selectedSubject);
+                    });
+                }
             } else {
                 // Fim dos tópicos (Revisão Geral ou Estudo Livre)
                 // Não gera novas revisões SRS pois não há tópico novo

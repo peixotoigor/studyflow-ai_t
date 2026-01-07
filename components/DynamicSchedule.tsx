@@ -137,9 +137,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
         // Filtrar apenas matérias selecionadas para o agendamento
         const planSubjects = activeSubjects.filter(s => selectedSubjectIds.has(s.id));
         
-        // Passamos 'enableSpacedRepetition' implicitamente. Se desativado na UI, podemos simular desligando no settings
-        // Mas a lógica atual do scheduler usa srsMode. Vamos manter coerente.
-        
         return generateMonthlySchedule(
             currentDate,
             planSubjects,
@@ -148,7 +145,8 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                 subjectsPerDay, 
                 srsPace, 
                 srsMode, 
-                activeWeekDays: enableSpacedRepetition ? activeWeekDays : [] // Truque: se desligar o SRS geral, impacta a geração? Não exatamente, o SRS é interno. Vamos assumir que o toggle "SRS" apenas liga/desliga a geração de REVIEWS.
+                activeWeekDays, // AGORA PASSADO DIRETAMENTE (Independente do toggle SRS)
+                enableSRS: enableSpacedRepetition // Flag específica para controlar revisões
             },
             dailyTimeMinutes
         );
@@ -412,7 +410,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                             <div className="mb-4 bg-white dark:bg-black/20 p-3 rounded-lg border border-amber-200/50 dark:border-amber-900/50 text-xs animate-in slide-in-from-top-2 fade-in duration-200">
                                 <p className="font-bold mb-1.5 text-amber-800 dark:text-amber-200">Como funciona?</p>
                                 <p className="text-slate-600 dark:text-slate-400 leading-relaxed mb-3">
-                                    No modo <strong>Inteligente</strong>, o sistema define intervalos baseado nos seus erros. No modo <strong>Manual</strong>, você fixa o ritmo.
+                                    Quando ativo, o sistema mistura revisões (1/7/14 dias) entre as matérias novas. Se desligado, o plano seguirá apenas teoria nova (linear).
                                 </p>
                             </div>
                         )}
@@ -471,10 +469,11 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                                 )}
                             </div>
                         ) : (
-                            <p className="text-[10px] text-gray-500 italic">As revisões não serão agendadas automaticamente.</p>
+                            <p className="text-[10px] text-gray-500 italic">As revisões não serão agendadas automaticamente. Apenas novos tópicos serão sugeridos.</p>
                         )}
                     </div>
 
+                    {/* RESTO DOS CONTROLES (MANTIDOS IGUAIS) */}
                     <div className="h-px bg-border-light dark:bg-border-dark w-full"></div>
 
                     {/* Controle de Dias da Semana */}
@@ -557,7 +556,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
 
                     <div className="h-px bg-border-light dark:bg-border-dark w-full my-2"></div>
 
-                    {/* Lista de Configuração Individual (Proficiência e Prioridade) */}
+                    {/* Lista de Configuração Individual */}
                     <div className="flex flex-col gap-3">
                          <div className="flex items-center justify-between">
                             <label className="text-xs font-bold uppercase text-text-secondary-light dark:text-text-secondary-dark">Configuração Individual</label>
@@ -569,7 +568,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                          <div className="flex flex-col gap-3 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
                              {activeSubjects.map(subject => {
                                  const isSelected = selectedSubjectIds.has(subject.id);
-                                 // Calcular peso visualmente para o usuário
                                  const pWeight = subject.priority === 'HIGH' ? 3 : subject.priority === 'LOW' ? 1 : 2;
                                  const kWeight = subject.proficiency === 'BEGINNER' ? 3 : subject.proficiency === 'ADVANCED' ? 1 : 2;
                                  const totalWeight = pWeight * kWeight;
@@ -600,7 +598,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                                          
                                          {isSelected && (
                                             <div className="flex flex-col gap-3 animate-in fade-in duration-300">
-                                                {/* Prioridade (Peso Edital) */}
                                                 <div className="flex flex-col gap-1">
                                                     <span className="text-[9px] text-gray-400 uppercase font-semibold">Prioridade (Edital)</span>
                                                     <div className="flex bg-gray-200 dark:bg-gray-800 rounded p-0.5">
@@ -622,7 +619,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                                                     </div>
                                                 </div>
 
-                                                {/* Proficiência (Inverso) */}
                                                 <div className="flex flex-col gap-1">
                                                     <span className="text-[9px] text-gray-400 uppercase font-semibold">Nível de Domínio (Você)</span>
                                                     <div className="flex bg-gray-200 dark:bg-gray-800 rounded p-0.5">
@@ -640,9 +636,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                                                             </button>
                                                         ))}
                                                     </div>
-                                                    <p className="text-[8px] text-gray-400 text-center mt-0.5">
-                                                        *Iniciantes recebem mais tempo de estudo (3x)
-                                                    </p>
                                                 </div>
                                             </div>
                                          )}
