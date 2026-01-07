@@ -154,9 +154,16 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
         const schedule: { [key: number]: ScheduleItem[] | null } = {}; 
         const daysCount = getDaysInMonth(viewingYear, viewingMonth);
 
+        // --- SEEDED RANDOM (Determinístico para Sync com StudyPlayer) ---
+        // Seed baseada no Ano e Mês para garantir consistência visual no calendário
+        const seedBase = viewingYear * 1000 + viewingMonth;
+        let seedState = seedBase;
+        const seededRandom = () => {
+            seedState = (seedState * 9301 + 49297) % 233280;
+            return seedState / 233280;
+        };
+
         // --- 1. CONSTRUÇÃO DO CICLO LINEAR (BARALHO VICIADO) ---
-        // Cria uma lista estática baseada nos pesos. Ex: [A, A, A, B, B, C]
-        // Complexidade: O(N) onde N é a soma dos pesos (muito baixo)
         let cycleDeck: Subject[] = [];
         const planSubjects = activeSubjects.filter(s => selectedSubjectIds.has(s.id));
         
@@ -164,23 +171,20 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
             planSubjects.forEach(sub => {
                 const pWeight = sub.priority === 'HIGH' ? 3 : sub.priority === 'LOW' ? 1 : 2;
                 const kWeight = sub.proficiency === 'BEGINNER' ? 3 : sub.proficiency === 'ADVANCED' ? 1 : 2;
-                // Limitamos o peso máximo para evitar arrays gigantes desnecessários
                 const totalWeight = Math.min(pWeight * kWeight, 9); 
 
                 for(let k=0; k < totalWeight; k++) cycleDeck.push(sub);
             });
 
-            // Embaralhamento Fisher-Yates Simples
+            // Embaralhamento Fisher-Yates com Seed Determinística
             for (let i = cycleDeck.length - 1; i > 0; i--) {
-                const j = Math.floor(Math.random() * (i + 1));
+                const j = Math.floor(seededRandom() * (i + 1));
                 [cycleDeck[i], cycleDeck[j]] = [cycleDeck[j], cycleDeck[i]];
             }
 
-            // Otimização de Adjacência (Evitar AA BB CC) - Passagem única O(N)
-            // Se o item atual for igual ao anterior, tenta trocar com o próximo
+            // Otimização de Adjacência
             for (let i = 1; i < cycleDeck.length - 1; i++) {
                 if (cycleDeck[i].id === cycleDeck[i-1].id) {
-                    // Troca com o próximo
                     [cycleDeck[i], cycleDeck[i+1]] = [cycleDeck[i+1], cycleDeck[i]];
                 }
             }
@@ -197,7 +201,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
             subjectTopicCursors[s.id] = firstPendingIndex === -1 ? 0 : firstPendingIndex;
         });
 
-        // Helper: Get Next from Deck
         const getNextSubject = (): Subject | null => {
             if (cycleDeck.length === 0) return null;
             const sub = cycleDeck[globalDeckCursor % cycleDeck.length];
@@ -205,7 +208,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
             return sub;
         };
 
-        // Helper SRS
         const getReviewIntervals = (subject: Subject): number[] => {
             if (srsMode === 'MANUAL') {
                 if (srsPace === 'ACCELERATED') return [1, 3, 7];
@@ -268,7 +270,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
             // =================================================
             if (!isDayActive) {
                 schedule[day] = null;
-                // Empurra revisões para o próximo dia
                 if (pendingReviews[day]) {
                     const nextDay = day + 1;
                     if (!pendingReviews[nextDay]) pendingReviews[nextDay] = [];
@@ -279,7 +280,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                 continue;
             }
 
-            // 1. Revisões (Prioridade Máxima)
+            // 1. Revisões
             if (pendingReviews[day]) {
                 pendingReviews[day].forEach(revSub => {
                     if (selectedSubjectIds.has(revSub.id)) {
@@ -288,14 +289,12 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                 });
             }
 
-            // 2. Teoria (Usa o Baralho Viciado)
+            // 2. Teoria
             let slotsForTheory = subjectsPerDay - dailyItems.length;
             if (slotsForTheory < 0) slotsForTheory = 0; 
 
             for (let i = 0; i < slotsForTheory; i++) {
-                // Simplesmente pega o próximo do baralho. Sem loops while, sem travamentos.
                 const selectedSubject = getNextSubject();
-                
                 if (!selectedSubject) break;
 
                 const idx = subjectTopicCursors[selectedSubject.id];
@@ -312,9 +311,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                         });
                     }
                 } else {
-                    // Se acabou os tópicos dessa matéria, tenta a próxima do baralho na próxima iteração do 'i'
-                    // Mas consome o slot atual com "Revisão Geral" ou pula
-                    // Para simplificar e evitar recursão: marcamos como teoria geral
                     dailyItems.push({ subject: selectedSubject, type: 'THEORY' }); 
                 }
             }

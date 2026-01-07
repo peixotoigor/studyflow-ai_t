@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useMemo } from 'react';
 import { AiTutorChat } from './AiTutorChat';
-import { Subject, ScheduleItem, Topic, StudyModality, Screen } from '../types';
+import { Subject, ScheduleItem, Topic, StudyModality, Screen, ErrorLog } from '../types';
 
 interface StudyPlayerProps {
     apiKey?: string;
@@ -10,6 +10,7 @@ interface StudyPlayerProps {
     onSessionComplete?: (subjectId: string, topicId: string, duration: number, questions: number, correct: number, isFinished: boolean, modalities: StudyModality[]) => void;
     onNavigate?: (screen: Screen) => void;
     onSaveNote?: (content: string, subject: string, topic: string) => void;
+    errorLogs?: ErrorLog[]; // Novo prop para sync de SRS
 }
 
 interface PersistedPlayerState {
@@ -21,7 +22,7 @@ interface PersistedPlayerState {
     date: string;
 }
 
-export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subjects = [], dailyAvailableTime = 240, onSessionComplete, onNavigate, onSaveNote }) => {
+export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subjects = [], dailyAvailableTime = 240, onSessionComplete, onNavigate, onSaveNote, errorLogs = [] }) => {
     const [isPlaying, setIsPlaying] = useState(false);
     const [isChatOpen, setIsChatOpen] = useState(false);
     const [isReportOpen, setIsReportOpen] = useState(false);
@@ -32,7 +33,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
 
     // Estado do Timer
     const [timeLeft, setTimeLeft] = useState(25 * 60); 
-    const [initialTime, setInitialTime] = useState(25 * 60); // Para resetar a barra de progresso se tiver
+    const [initialTime, setInitialTime] = useState(25 * 60); 
     const [elapsedTime, setElapsedTime] = useState(0);
     const timerRef = useRef<number | null>(null);
 
@@ -43,8 +44,192 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
     const [questionsCorrect, setQuestionsCorrect] = useState(0);
     const [isTopicFinished, setIsTopicFinished] = useState(false);
     
-    // Novo Estado de Modalidade (Array para Múltipla Seleção)
     const [selectedModalities, setSelectedModalities] = useState<StudyModality[]>(['PDF']);
+
+    // PERFORMANCE: Pre-calculate error counts (Igual ao DynamicSchedule)
+    const subjectErrorCounts = useMemo(() => {
+        const counts: Record<string, number> = {};
+        errorLogs.forEach(log => {
+            counts[log.subjectId] = (counts[log.subjectId] || 0) + 1;
+        });
+        return counts;
+    }, [errorLogs]);
+
+    // --- LOGICA DE SIMULAÇÃO DE AGENDA (Sync com DynamicSchedule) ---
+    const generateDailyQueue = () => {
+        if (subjects.length === 0) return;
+        const activeSubjects = subjects.filter(s => s.active);
+        if (activeSubjects.length === 0) { setTodaysQueue([]); return; }
+
+        // Ler configurações do localStorage
+        let settings = { subjectsPerDay: 2, srsPace: 'NORMAL', srsMode: 'SMART', activeWeekDays: [0,1,2,3,4,5,6] };
+        let selectedIds = new Set<string>();
+        try {
+            const savedSettings = localStorage.getItem('studyflow_schedule_settings');
+            if (savedSettings) settings = { ...settings, ...JSON.parse(savedSettings) };
+            
+            const savedSelection = localStorage.getItem('studyflow_schedule_selection');
+            if (savedSelection) selectedIds = new Set(JSON.parse(savedSelection));
+            else selectedIds = new Set(activeSubjects.map(s => s.id));
+        } catch(e) {}
+
+        const now = new Date();
+        now.setHours(0, 0, 0, 0); // Normalizar
+        const viewingMonth = now.getMonth();
+        const viewingYear = now.getFullYear();
+        const todayDay = now.getDate();
+
+        // 1. Setup Seeded Random (Mesma semente do DynamicSchedule)
+        const seedBase = viewingYear * 1000 + viewingMonth;
+        let seedState = seedBase;
+        const seededRandom = () => {
+            seedState = (seedState * 9301 + 49297) % 233280;
+            return seedState / 233280;
+        };
+
+        // 2. Construir Baralho Ponderado
+        let cycleDeck: Subject[] = [];
+        const planSubjects = activeSubjects.filter(s => selectedIds.has(s.id));
+        
+        if (planSubjects.length > 0) {
+            planSubjects.forEach(sub => {
+                const pWeight = sub.priority === 'HIGH' ? 3 : sub.priority === 'LOW' ? 1 : 2;
+                const kWeight = sub.proficiency === 'BEGINNER' ? 3 : sub.proficiency === 'ADVANCED' ? 1 : 2;
+                const totalWeight = Math.min(pWeight * kWeight, 9); 
+                for(let k=0; k < totalWeight; k++) cycleDeck.push(sub);
+            });
+
+            // Embaralhar com Seed
+            for (let i = cycleDeck.length - 1; i > 0; i--) {
+                const j = Math.floor(seededRandom() * (i + 1));
+                [cycleDeck[i], cycleDeck[j]] = [cycleDeck[j], cycleDeck[i]];
+            }
+            // Otimização de Adjacência
+            for (let i = 1; i < cycleDeck.length - 1; i++) {
+                if (cycleDeck[i].id === cycleDeck[i-1].id) {
+                    [cycleDeck[i], cycleDeck[i+1]] = [cycleDeck[i+1], cycleDeck[i]];
+                }
+            }
+        }
+
+        // 3. Simular o Mês até HOJE
+        let globalDeckCursor = 0;
+        const pendingReviews: { [key: number]: Subject[] } = {};
+        const subjectTopicCursors: Record<string, number> = {};
+        
+        planSubjects.forEach(s => {
+            const firstPendingIndex = s.topics.findIndex(t => !t.completed);
+            subjectTopicCursors[s.id] = firstPendingIndex === -1 ? 0 : firstPendingIndex;
+        });
+
+        const getNextSubject = (): Subject | null => {
+            if (cycleDeck.length === 0) return null;
+            const sub = cycleDeck[globalDeckCursor % cycleDeck.length];
+            globalDeckCursor++;
+            return sub;
+        };
+
+        const getReviewIntervals = (subject: Subject): number[] => {
+            if (settings.srsMode === 'MANUAL') {
+                if (settings.srsPace === 'ACCELERATED') return [1, 3, 7];
+                if (settings.srsPace === 'RELAXED') return [3, 10, 20];
+                return [1, 7, 14]; 
+            }
+            const subErrors = subjectErrorCounts[subject.id] || 0;
+            const accuracy = 70; 
+            if (subErrors > 3 || accuracy < 60) return [1, 3, 7]; 
+            if (accuracy > 85 && subErrors === 0) return [3, 14, 30]; 
+            return [1, 7, 14];
+        };
+
+        const addReview = (targetDay: number, subject: Subject) => {
+            if (!pendingReviews[targetDay]) pendingReviews[targetDay] = [];
+            if (!pendingReviews[targetDay].some(s => s.id === subject.id)) {
+                pendingReviews[targetDay].push(subject);
+            }
+        };
+
+        let todaysItems: ScheduleItem[] = [];
+
+        // Loop de Simulação
+        for (let day = 1; day <= todayDay; day++) {
+            const currentDateObj = new Date(viewingYear, viewingMonth, day);
+            const currentDayOfWeek = currentDateObj.getDay();
+            const isDayActive = settings.activeWeekDays.includes(currentDayOfWeek);
+            
+            // Itens calculados para este passo da simulação
+            const stepItems: ScheduleItem[] = [];
+
+            if (!isDayActive) {
+                if (pendingReviews[day]) {
+                    const nextDay = day + 1;
+                    if (!pendingReviews[nextDay]) pendingReviews[nextDay] = [];
+                    pendingReviews[day].forEach(r => {
+                        if (!pendingReviews[nextDay].some(pr => pr.id === r.id)) pendingReviews[nextDay].push(r);
+                    });
+                }
+                if (day === todayDay) todaysItems = []; // Hoje é folga
+                continue;
+            }
+
+            // 1. Revisões
+            if (pendingReviews[day]) {
+                pendingReviews[day].forEach(revSub => {
+                    if (selectedIds.has(revSub.id)) {
+                        stepItems.push({ subject: revSub, type: 'REVIEW' });
+                    }
+                });
+            }
+
+            // 2. Teoria
+            let slotsForTheory = settings.subjectsPerDay - stepItems.length;
+            if (slotsForTheory < 0) slotsForTheory = 0;
+
+            for (let i = 0; i < slotsForTheory; i++) {
+                const selectedSubject = getNextSubject();
+                if (!selectedSubject) break;
+
+                const idx = subjectTopicCursors[selectedSubject.id];
+                if (selectedSubject.topics && idx < selectedSubject.topics.length) {
+                    const topic = selectedSubject.topics[idx];
+                    subjectTopicCursors[selectedSubject.id] = idx + 1;
+
+                    stepItems.push({ subject: selectedSubject, type: 'THEORY', topic: topic });
+
+                    // Agenda revisões futuras na simulação
+                    const intervals = getReviewIntervals(selectedSubject);
+                    intervals.forEach(interval => {
+                        addReview(day + interval, selectedSubject);
+                    });
+                } else {
+                    stepItems.push({ subject: selectedSubject, type: 'THEORY' }); 
+                }
+            }
+
+            // Se for hoje, salvamos o resultado
+            if (day === todayDay) {
+                todaysItems = stepItems;
+                
+                // Distribuir Tempo
+                if (todaysItems.length > 0) {
+                    const totalWeight = todaysItems.reduce((acc, item) => acc + (item.type === 'REVIEW' ? 1 : 2), 0);
+                    todaysItems.forEach(item => {
+                        const weight = item.type === 'REVIEW' ? 1 : 2;
+                        item.durationMinutes = Math.round((weight / totalWeight) * dailyAvailableTime);
+                    });
+                }
+            }
+        }
+
+        // Definir Fila
+        setTodaysQueue(todaysItems);
+        
+        if (todaysItems.length > 0) {
+            const duration = (todaysItems[0].durationMinutes || 25) * 60;
+            setTimeLeft(duration);
+            setInitialTime(duration);
+        }
+    };
 
     // --- CARREGAR ESTADO PERSISTIDO (SAFE) ---
     useEffect(() => {
@@ -80,7 +265,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         }
         
         generateDailyQueue();
-    }, [subjects, dailyAvailableTime]);
+    }, [subjects, dailyAvailableTime, errorLogs]); // Recalcula se logs de erro mudarem para manter sync
 
     // --- SALVAR ESTADO PERSISTIDO (Auto-save SAFE) ---
     useEffect(() => {
@@ -118,34 +303,6 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
             osc.stop(ctx.currentTime + 0.5);
         } catch (e) {
             console.error("Audio playback failed", e);
-        }
-    };
-
-    const generateDailyQueue = () => {
-        if (subjects.length === 0) return;
-        const activeSubjects = subjects.filter(s => s.active);
-        if (activeSubjects.length === 0) { setTodaysQueue([]); return; }
-
-        const todaysSelection = activeSubjects.slice(0, 4); 
-        const weightedItems = todaysSelection.map(sub => {
-            const priorityWeight = sub.priority === 'HIGH' ? 3 : sub.priority === 'LOW' ? 1 : 2;
-            const proficiencyWeight = sub.proficiency === 'BEGINNER' ? 3 : sub.proficiency === 'ADVANCED' ? 1 : 2;
-            const nextTopic = sub.topics.find(t => !t.completed);
-            return { subject: sub, topic: nextTopic, weight: priorityWeight * proficiencyWeight };
-        });
-
-        const totalDailyWeight = weightedItems.reduce((acc, item) => acc + item.weight, 0);
-        const queue: ScheduleItem[] = weightedItems.map(item => {
-            let duration = Math.round((item.weight / totalDailyWeight) * dailyAvailableTime);
-            if (duration < 15) duration = 15;
-            return { subject: item.subject, topic: item.topic, type: 'THEORY', durationMinutes: duration };
-        });
-
-        setTodaysQueue(queue);
-        if (queue.length > 0) {
-            const duration = (queue[0].durationMinutes || 25) * 60;
-            setTimeLeft(duration);
-            setInitialTime(duration);
         }
     };
 
@@ -279,7 +436,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                      </h2>
                      
                      <p className="text-slate-500 dark:text-slate-400 mb-8 leading-relaxed text-sm md:text-base">
-                         O algoritmo não encontrou atividades pendentes para agora. Você pode gerar uma nova fila baseada nas prioridades atuais ou ajustar seu cronograma.
+                         O algoritmo não encontrou atividades para HOJE. Verifique se o dia está marcado como ativo no calendário ou se você já completou a meta.
                      </p>
                      
                      <div className="flex flex-col sm:flex-row gap-3 w-full">
@@ -288,7 +445,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                             className="flex-1 flex items-center justify-center gap-2 px-6 py-3.5 bg-primary hover:bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-primary/20 transition-all active:scale-95"
                         >
                              <span className="material-symbols-outlined">refresh</span>
-                             Gerar Fila Agora
+                             Recalcular Rota
                          </button>
                          
                          {onNavigate && (
@@ -297,7 +454,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                                 className="flex-1 flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-white rounded-xl text-sm font-bold transition-all active:scale-95"
                             >
                                  <span className="material-symbols-outlined">calendar_month</span>
-                                 Ajustar Plano
+                                 Ver Calendário
                              </button>
                          )}
                      </div>
@@ -548,7 +705,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                                                     <span className={`text-xs font-bold px-1.5 py-0.5 rounded-[3px] uppercase tracking-wide text-[10px] ${
                                                         item.subject.priority === 'HIGH' ? 'bg-red-100 text-red-600 dark:bg-red-900/30 dark:text-red-400' : 'bg-gray-100 text-gray-500 dark:bg-gray-800 dark:text-gray-400'
                                                     }`}>
-                                                        {item.subject.priority === 'HIGH' ? 'Alta Prioridade' : 'Normal'}
+                                                        {item.type === 'REVIEW' ? 'Revisão' : item.subject.priority === 'HIGH' ? 'Alta Prioridade' : 'Normal'}
                                                     </span>
                                                     {isActive && <span className="flex size-1.5 rounded-full bg-primary animate-pulse"></span>}
                                                 </div>

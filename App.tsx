@@ -692,7 +692,7 @@ function App() {
 
     switch (currentScreen) {
       case Screen.DASHBOARD: return <Dashboard onNavigate={setCurrentScreen} user={user} subjects={currentPlanSubjects} errorLogs={currentPlanErrorLogs} onManualRestore={handleManualGithubSync} />;
-      case Screen.STUDY_PLAYER: return <StudyPlayer apiKey={user.openAiApiKey} model={user.openAiModel} subjects={currentPlanSubjects} dailyAvailableTime={user.dailyAvailableTimeMinutes || 240} onSessionComplete={handleSessionComplete} onNavigate={setCurrentScreen} onSaveNote={handleAddSavedNote} />;
+      case Screen.STUDY_PLAYER: return <StudyPlayer apiKey={user.openAiApiKey} model={user.openAiModel} subjects={currentPlanSubjects} dailyAvailableTime={user.dailyAvailableTimeMinutes || 240} onSessionComplete={handleSessionComplete} onNavigate={setCurrentScreen} onSaveNote={handleAddSavedNote} errorLogs={currentPlanErrorLogs} />;
       case Screen.SUBJECTS: return <SubjectManager 
                                         subjects={currentPlanSubjects} 
                                         onDeleteSubject={handleDeleteSubject} 
