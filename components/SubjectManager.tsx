@@ -1,8 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Subject, Topic, StudyLog, getSubjectIcon } from '../types';
+import { Subject, Topic, StudyLog, getSubjectIcon, StudyPlan } from '../types';
 
 interface SubjectManagerProps {
     subjects?: Subject[];
+    allSubjects?: Subject[]; // Para importar de outros planos
+    plans?: StudyPlan[]; // Para selecionar plano de origem
+    onImportFromPlan?: (sourcePlanId: string, subjectIdsToCopy: string[]) => void;
     onDeleteSubject?: (id: string) => void;
     onAddSubject?: (name: string) => void;
     onToggleStatus?: (id: string) => void;
@@ -13,7 +16,7 @@ interface SubjectManagerProps {
     onEditTopic?: (subjectId: string, topicId: string, newName: string) => void;
     onUpdateLog?: (subjectId: string, logId: string, updatedLog: Partial<StudyLog>) => void;
     onDeleteLog?: (subjectId: string, logId: string) => void;
-    onToggleTopicCompletion?: (subjectId: string, topicId: string) => void; // Nova prop
+    onToggleTopicCompletion?: (subjectId: string, topicId: string) => void; 
     apiKey?: string;
     model?: string;
 }
@@ -24,6 +27,9 @@ const AVAILABLE_COLORS = [
 
 export const SubjectManager: React.FC<SubjectManagerProps> = ({ 
     subjects = [], 
+    allSubjects = [],
+    plans = [],
+    onImportFromPlan,
     onDeleteSubject, 
     onAddSubject,
     onToggleStatus,
@@ -55,6 +61,11 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     // States for New Subject Modal
     const [isCreatingSubject, setIsCreatingSubject] = useState(false);
     const [newSubjectName, setNewSubjectName] = useState('');
+
+    // States for IMPORT FROM PLAN Modal
+    const [isImporting, setIsImporting] = useState(false);
+    const [sourcePlanId, setSourcePlanId] = useState('');
+    const [selectedImportSubjects, setSelectedImportSubjects] = useState<Set<string>>(new Set());
 
     // AI Import Modal State
     const [aiImportSubjectId, setAiImportSubjectId] = useState<string | null>(null);
@@ -129,6 +140,31 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
             onAddSubject(newSubjectName);
             setNewSubjectName('');
             setIsCreatingSubject(false);
+        }
+    };
+
+    // --- Import Handlers ---
+    const handleToggleImportSelection = (id: string) => {
+        const newSet = new Set(selectedImportSubjects);
+        if (newSet.has(id)) newSet.delete(id);
+        else newSet.add(id);
+        setSelectedImportSubjects(newSet);
+    };
+
+    const handleSelectAllImport = (visibleIds: string[]) => {
+        if (selectedImportSubjects.size === visibleIds.length) {
+            setSelectedImportSubjects(new Set());
+        } else {
+            setSelectedImportSubjects(new Set(visibleIds));
+        }
+    };
+
+    const confirmImport = () => {
+        if (onImportFromPlan && sourcePlanId && selectedImportSubjects.size > 0) {
+            onImportFromPlan(sourcePlanId, Array.from(selectedImportSubjects));
+            setIsImporting(false);
+            setSourcePlanId('');
+            setSelectedImportSubjects(new Set());
         }
     };
 
@@ -281,7 +317,11 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     );
 
     const activeSubjects = filteredSubjects.filter(s => s.active);
-    const archivedSubjects = filteredSubjects.filter(s => !s.active);
+    
+    // Lista de disciplinas para o Modal de Importação
+    const importableSubjects = sourcePlanId 
+        ? allSubjects.filter(s => s.planId === sourcePlanId)
+        : [];
 
     const renderSubjectCard = (subject: Subject, isArchived: boolean) => {
         const isExpanded = expandedSubjectId === subject.id;
@@ -412,27 +452,124 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                 {/* ... (Cabeçalho e Filtros mantidos) ... */}
                 <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
                     <h1 className="text-3xl md:text-4xl font-black text-text-primary-light dark:text-text-primary-dark">Configuração do Ciclo</h1>
-                    <button onClick={() => setIsCreatingSubject(true)} className="flex items-center gap-2 h-11 px-5 bg-primary text-white font-bold rounded-lg shadow-lg hover:bg-blue-700 transition-all"><span className="material-symbols-outlined">add</span> Nova Disciplina</button>
+                    <div className="flex gap-2">
+                        {plans.length > 1 && (
+                            <button onClick={() => setIsImporting(true)} className="flex items-center gap-2 h-11 px-4 bg-white dark:bg-card-dark border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-all">
+                                <span className="material-symbols-outlined text-[18px]">input</span> 
+                                <span className="hidden sm:inline">Importar</span>
+                            </button>
+                        )}
+                        <button onClick={() => setIsCreatingSubject(true)} className="flex items-center gap-2 h-11 px-5 bg-primary text-white font-bold rounded-lg shadow-lg hover:bg-blue-700 transition-all"><span className="material-symbols-outlined">add</span> Nova Disciplina</button>
+                    </div>
                 </div>
 
                 {/* Lista de Subjects */}
-                {activeSubjects.length > 0 && (
+                {activeSubjects.length > 0 ? (
                     <div className="flex flex-col gap-4">
                         <h2 className="text-sm font-bold uppercase tracking-wider text-primary">No Plano de Estudos</h2>
                         {activeSubjects.map(s => renderSubjectCard(s, false))}
                     </div>
+                ) : (
+                    <div className="text-center py-20 text-gray-400">
+                        <span className="material-symbols-outlined text-6xl mb-4">layers_clear</span>
+                        <p className="text-lg">Nenhuma disciplina neste plano.</p>
+                        <p className="text-sm">Crie uma nova ou importe de outro edital.</p>
+                    </div>
                 )}
-                
-                {/* Modais mantidos */}
             </div>
+
+            {/* Modal de Criação */}
             {isCreatingSubject && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
                     <div className="bg-white dark:bg-card-dark p-6 rounded-xl shadow-xl w-full max-w-md">
-                        <h3 className="text-lg font-bold mb-4">Nova Disciplina</h3>
-                        <input autoFocus type="text" value={newSubjectName} onChange={(e) => setNewSubjectName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateSubjectSubmit()} className="w-full border p-2 rounded mb-4 text-black dark:text-white dark:bg-black/20" placeholder="Nome..." />
+                        <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Nova Disciplina</h3>
+                        <input autoFocus type="text" value={newSubjectName} onChange={(e) => setNewSubjectName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateSubjectSubmit()} className="w-full border border-gray-300 dark:border-gray-700 p-2 rounded mb-4 text-black dark:text-white bg-white dark:bg-black/20 focus:ring-2 focus:ring-primary outline-none" placeholder="Nome..." />
                         <div className="flex justify-end gap-2">
-                            <button onClick={() => setIsCreatingSubject(false)} className="px-4 py-2 rounded text-gray-500">Cancelar</button>
-                            <button onClick={handleCreateSubjectSubmit} className="px-4 py-2 bg-primary text-white rounded">Criar</button>
+                            <button onClick={() => setIsCreatingSubject(false)} className="px-4 py-2 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">Cancelar</button>
+                            <button onClick={handleCreateSubjectSubmit} className="px-4 py-2 bg-primary text-white rounded font-bold hover:bg-blue-600">Criar</button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Modal de Importação */}
+            {isImporting && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
+                    <div className="bg-white dark:bg-[#1e1e2d] w-full max-w-lg rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 flex flex-col max-h-[85vh]">
+                        <div className="p-6 border-b border-gray-100 dark:border-gray-800">
+                            <h3 className="text-xl font-bold text-gray-900 dark:text-white flex items-center gap-2">
+                                <span className="material-symbols-outlined text-primary">folder_copy</span>
+                                Importar de Outro Plano
+                            </h3>
+                            <p className="text-sm text-gray-500 mt-1">Copie disciplinas inteiras de seus editais anteriores.</p>
+                        </div>
+                        
+                        <div className="p-6 flex flex-col gap-6 overflow-y-auto">
+                            {/* Seletor de Plano */}
+                            <div className="flex flex-col gap-2">
+                                <label className="text-xs font-bold uppercase text-gray-500 dark:text-gray-400">Plano de Origem</label>
+                                <select 
+                                    value={sourcePlanId} 
+                                    onChange={(e) => {
+                                        setSourcePlanId(e.target.value);
+                                        setSelectedImportSubjects(new Set()); // Reset seleção ao mudar plano
+                                    }}
+                                    className="w-full p-3 rounded-lg bg-gray-50 dark:bg-black/20 border border-gray-200 dark:border-gray-700 text-gray-900 dark:text-white focus:ring-2 focus:ring-primary/50 outline-none cursor-pointer"
+                                >
+                                    <option value="">Selecione um plano...</option>
+                                    {plans.filter(p => subjects.length === 0 || p.id !== subjects[0].planId).map(plan => (
+                                        <option key={plan.id} value={plan.id}>{plan.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            {/* Lista de Seleção */}
+                            {sourcePlanId && (
+                                <div className="flex flex-col gap-2 flex-1 min-h-0">
+                                    <div className="flex justify-between items-center">
+                                        <label className="text-xs font-bold uppercase text-gray-500 dark:text-gray-400">Disciplinas Disponíveis</label>
+                                        <button 
+                                            onClick={() => handleSelectAllImport(importableSubjects.map(s => s.id))}
+                                            className="text-xs text-primary font-bold hover:underline"
+                                        >
+                                            {selectedImportSubjects.size === importableSubjects.length ? 'Desmarcar Todas' : 'Selecionar Todas'}
+                                        </button>
+                                    </div>
+                                    
+                                    <div className="border border-gray-200 dark:border-gray-700 rounded-lg overflow-y-auto max-h-[300px] p-2 bg-gray-50/50 dark:bg-black/10 custom-scrollbar">
+                                        {importableSubjects.length > 0 ? (
+                                            importableSubjects.map(sub => (
+                                                <div 
+                                                    key={sub.id} 
+                                                    onClick={() => handleToggleImportSelection(sub.id)}
+                                                    className={`flex items-center gap-3 p-3 rounded-lg cursor-pointer transition-colors ${selectedImportSubjects.has(sub.id) ? 'bg-primary/10 border border-primary/30' : 'hover:bg-white dark:hover:bg-white/5 border border-transparent'}`}
+                                                >
+                                                    <div className={`size-5 rounded border flex items-center justify-center ${selectedImportSubjects.has(sub.id) ? 'bg-primary border-primary' : 'border-gray-300 dark:border-gray-600'}`}>
+                                                        {selectedImportSubjects.has(sub.id) && <span className="material-symbols-outlined text-white text-[14px]">check</span>}
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <p className="text-sm font-bold text-gray-900 dark:text-white">{sub.name}</p>
+                                                        <p className="text-xs text-gray-500">{sub.topics.length} tópicos</p>
+                                                    </div>
+                                                </div>
+                                            ))
+                                        ) : (
+                                            <div className="text-center py-8 text-gray-400 text-sm">Este plano não possui disciplinas.</div>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="p-4 border-t border-gray-100 dark:border-gray-800 flex justify-end gap-3 bg-gray-50 dark:bg-black/20">
+                            <button onClick={() => setIsImporting(false)} className="px-4 py-2 rounded-lg text-sm font-bold text-gray-500 hover:bg-gray-200 dark:hover:bg-gray-800 transition-colors">Cancelar</button>
+                            <button 
+                                onClick={confirmImport} 
+                                disabled={!sourcePlanId || selectedImportSubjects.size === 0}
+                                className="px-6 py-2 rounded-lg text-sm font-bold text-white bg-primary hover:bg-blue-600 disabled:opacity-50 disabled:cursor-not-allowed shadow-lg shadow-primary/20 transition-all active:scale-95"
+                            >
+                                Importar {selectedImportSubjects.size > 0 && `(${selectedImportSubjects.size})`}
+                            </button>
                         </div>
                     </div>
                 </div>

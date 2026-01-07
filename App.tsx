@@ -694,6 +694,30 @@ function App() {
       }));
   };
 
+  // Nova Função: Importar (Copiar) disciplinas de outro plano
+  const handleImportSubjectsFromPlan = (sourcePlanId: string, subjectIdsToCopy: string[]) => {
+      const sourceSubjects = subjects.filter(s => s.planId === sourcePlanId && subjectIdsToCopy.includes(s.id));
+      
+      if (sourceSubjects.length === 0) return;
+
+      const newSubjects: Subject[] = sourceSubjects.map(sub => ({
+          ...sub,
+          id: `imported-plan-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`, // Novo ID
+          planId: currentPlanId, // Vincula ao plano atual
+          // Reseta estado dos tópicos (não concluídos, novos IDs)
+          topics: sub.topics.map(t => ({
+              ...t,
+              id: `topic-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
+              completed: false
+          })),
+          logs: [], // Zera histórico
+          active: true // Garante que venha ativa
+      }));
+
+      setSubjects(prev => [...prev, ...newSubjects]);
+      alert(`${newSubjects.length} disciplinas importadas com sucesso!`);
+  };
+
   const [theme, setTheme] = useState(() => (typeof window !== 'undefined' ? safeGet('theme', 'light') : 'light'));
   useEffect(() => { document.documentElement.classList.toggle('dark', theme === 'dark'); safeSet('theme', theme); }, [theme]);
   const toggleTheme = () => setTheme(prev => prev === 'light' ? 'dark' : 'light');
@@ -757,7 +781,10 @@ function App() {
       case Screen.DASHBOARD: return <Dashboard onNavigate={setCurrentScreen} user={user} subjects={currentPlanSubjects} errorLogs={currentPlanErrorLogs} onManualRestore={handleManualGithubSync} />;
       case Screen.STUDY_PLAYER: return <StudyPlayer apiKey={user.openAiApiKey} model={user.openAiModel} subjects={currentPlanSubjects} dailyAvailableTime={user.dailyAvailableTimeMinutes || 240} onSessionComplete={handleSessionComplete} onNavigate={setCurrentScreen} onSaveNote={handleAddSavedNote} errorLogs={currentPlanErrorLogs} />;
       case Screen.SUBJECTS: return <SubjectManager 
-                                        subjects={currentPlanSubjects} 
+                                        subjects={currentPlanSubjects}
+                                        allSubjects={subjects} // Passa TODAS as disciplinas para permitir importação
+                                        plans={plans} // Passa os planos para o seletor
+                                        onImportFromPlan={handleImportSubjectsFromPlan}
                                         onDeleteSubject={handleDeleteSubject} 
                                         onAddSubject={handleAddManualSubject} 
                                         onToggleStatus={handleToggleSubjectStatus} 
@@ -768,7 +795,7 @@ function App() {
                                         onEditTopic={handleEditTopic} 
                                         onUpdateLog={handleUpdateLog}
                                         onDeleteLog={handleDeleteSubjectLog}
-                                        onToggleTopicCompletion={handleToggleTopicCompletion} // Passando a nova função
+                                        onToggleTopicCompletion={handleToggleTopicCompletion} 
                                         apiKey={user.openAiApiKey} 
                                         model={user.openAiModel} 
                                     />;
