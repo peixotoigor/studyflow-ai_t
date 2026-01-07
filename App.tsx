@@ -574,9 +574,46 @@ function App() {
   
   const handleDeleteSubject = (id: string) => { if(window.confirm("Apagar disciplina?")) setSubjects(prev => prev.filter(s => s.id !== id)); };
   const handleToggleSubjectStatus = (id: string) => setSubjects(prev => prev.map(s => s.id === id ? { ...s, active: !s.active } : s));
+  
+  // --- SMART COLOR SELECTION LOGIC ---
   const handleAddManualSubject = (name: string) => {
-      if (name?.trim()) setSubjects(prev => [...prev, { id: `manual-${Date.now()}`, planId: currentPlanId, name, active: true, color: AUTO_COLORS[subjects.length % AUTO_COLORS.length], topics: [], priority: 'MEDIUM', proficiency: 'INTERMEDIATE', logs: [] }]);
+      if (name?.trim()) {
+          // 1. Conta a frequência de cada cor nas matérias ATIVAS
+          const colorCounts: Record<string, number> = {};
+          AUTO_COLORS.forEach(c => colorCounts[c] = 0);
+          
+          subjects.forEach(s => {
+              if (s.active && s.color && colorCounts[s.color] !== undefined) {
+                  colorCounts[s.color]++;
+              }
+          });
+
+          // 2. Encontra o menor número de uso
+          let minCount = Infinity;
+          Object.values(colorCounts).forEach(count => {
+              if (count < minCount) minCount = count;
+          });
+
+          // 3. Filtra as cores que têm esse menor uso (candidatas)
+          const candidates = AUTO_COLORS.filter(c => colorCounts[c] === minCount);
+
+          // 4. Seleciona aleatoriamente entre as candidatas
+          const nextColor = candidates[Math.floor(Math.random() * candidates.length)];
+
+          setSubjects(prev => [...prev, { 
+              id: `manual-${Date.now()}`, 
+              planId: currentPlanId, 
+              name, 
+              active: true, 
+              color: nextColor, 
+              topics: [], 
+              priority: 'MEDIUM', 
+              proficiency: 'INTERMEDIATE', 
+              logs: [] 
+          }]);
+      }
   };
+
   const handleAddTopic = (sId: string, name: string) => setSubjects(prev => prev.map(s => s.id === sId ? { ...s, topics: [...s.topics, { id: `topic-${Date.now()}-${Math.random()}`, name, completed: false }] } : s));
   const handleRemoveTopic = (sId: string, tId: string) => setSubjects(prev => prev.map(s => s.id === sId ? { ...s, topics: s.topics.filter(t => t.id !== tId) } : s));
   const handleEditTopic = (sId: string, tId: string, name: string) => setSubjects(prev => prev.map(s => s.id === sId ? { ...s, topics: s.topics.map(t => t.id === tId ? { ...t, name } : t) } : s));

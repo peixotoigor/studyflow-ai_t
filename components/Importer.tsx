@@ -7,7 +7,7 @@ const getPdfJs = () => {
     const lib = (pdfjsLib as any).default || pdfjsLib;
     // Configurar worker se ainda não estiver configurado
     if (!lib.GlobalWorkerOptions.workerSrc) {
-        lib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.0.379/build/pdf.worker.min.mjs';
+        lib.GlobalWorkerOptions.workerSrc = 'https://esm.sh/pdfjs-dist@4.8.69/build/pdf.worker.min.mjs';
     }
     return lib;
 };
@@ -334,7 +334,10 @@ export const Importer: React.FC<ImporterProps> = ({ apiKey, model = 'gpt-4o-mini
         if (!syllabus || !onImport) return;
 
         const newSubjects: Subject[] = [];
-        let globalSubjectIndex = 0; // Para rodar as cores sequencialmente
+        let globalSubjectIndex = 0; 
+        
+        // Embaralha a paleta para garantir variedade única a cada importação
+        const shuffledPalette = [...IMPORT_COLORS].sort(() => Math.random() - 0.5);
 
         syllabus.categorias.forEach((cat, catIdx) => {
             cat.disciplinas.forEach((sub, subIdx) => {
@@ -345,8 +348,8 @@ export const Importer: React.FC<ImporterProps> = ({ apiKey, model = 'gpt-4o-mini
                     const isSpecific = cat.nome.toLowerCase().includes('específico') || cat.nome.toLowerCase().includes('especial');
                     const priority = isSpecific ? 'HIGH' : 'MEDIUM';
                     
-                    // Cor automática cíclica
-                    const color = IMPORT_COLORS[globalSubjectIndex % IMPORT_COLORS.length];
+                    // Cor baseada na paleta embaralhada
+                    const color = shuffledPalette[globalSubjectIndex % shuffledPalette.length];
                     globalSubjectIndex++;
 
                     newSubjects.push({
