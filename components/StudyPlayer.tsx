@@ -55,13 +55,16 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         return counts;
     }, [errorLogs]);
 
-    // --- LOGICA DE SIMULAÇÃO DE AGENDA (Sync com DynamicSchedule) ---
-    const generateDailyQueue = () => {
-        if (subjects.length === 0) return;
-        const activeSubjects = subjects.filter(s => s.active);
-        if (activeSubjects.length === 0) { setTodaysQueue([]); return; }
+    // --- FUNÇÃO PURA DE CÁLCULO DA FILA (Extraída para garantir execução a cada render relevante) ---
+    const calculateDailyQueue = (): ScheduleItem[] => {
+        if (subjects.length === 0) return [];
+        
+        // ORDENAÇÃO OBRIGATÓRIA (CRÍTICO PARA SYNC)
+        const activeSubjects = subjects.filter(s => s.active).sort((a, b) => a.id.localeCompare(b.id));
+        
+        if (activeSubjects.length === 0) return [];
 
-        // Ler configurações do localStorage
+        // Ler configurações do localStorage (Fonte da Verdade Compartilhada)
         let settings = { subjectsPerDay: 2, srsPace: 'NORMAL', srsMode: 'SMART', activeWeekDays: [0,1,2,3,4,5,6] };
         let selectedIds = new Set<string>();
         try {
@@ -74,7 +77,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         } catch(e) {}
 
         const now = new Date();
-        now.setHours(0, 0, 0, 0); // Normalizar
+        now.setHours(0, 0, 0, 0); 
         const viewingMonth = now.getMonth();
         const viewingYear = now.getFullYear();
         const todayDay = now.getDate();
@@ -99,12 +102,12 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                 for(let k=0; k < totalWeight; k++) cycleDeck.push(sub);
             });
 
-            // Embaralhar com Seed
+            // Embaralhar
             for (let i = cycleDeck.length - 1; i > 0; i--) {
                 const j = Math.floor(seededRandom() * (i + 1));
                 [cycleDeck[i], cycleDeck[j]] = [cycleDeck[j], cycleDeck[i]];
             }
-            // Otimização de Adjacência
+            // Otimizar
             for (let i = 1; i < cycleDeck.length - 1; i++) {
                 if (cycleDeck[i].id === cycleDeck[i-1].id) {
                     [cycleDeck[i], cycleDeck[i+1]] = [cycleDeck[i+1], cycleDeck[i]];
@@ -112,7 +115,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
             }
         }
 
-        // 3. Simular o Mês até HOJE
+        // 3. Simulação
         let globalDeckCursor = 0;
         const pendingReviews: { [key: number]: Subject[] } = {};
         const subjectTopicCursors: Record<string, number> = {};
@@ -149,15 +152,12 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
             }
         };
 
-        let todaysItems: ScheduleItem[] = [];
-
-        // Loop de Simulação
+        // Executar Simulação até Hoje
         for (let day = 1; day <= todayDay; day++) {
             const currentDateObj = new Date(viewingYear, viewingMonth, day);
             const currentDayOfWeek = currentDateObj.getDay();
             const isDayActive = settings.activeWeekDays.includes(currentDayOfWeek);
             
-            // Itens calculados para este passo da simulação
             const stepItems: ScheduleItem[] = [];
 
             if (!isDayActive) {
@@ -168,7 +168,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                         if (!pendingReviews[nextDay].some(pr => pr.id === r.id)) pendingReviews[nextDay].push(r);
                     });
                 }
-                if (day === todayDay) todaysItems = []; // Hoje é folga
+                if (day === todayDay) return []; // Hoje é folga
                 continue;
             }
 
@@ -196,76 +196,84 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
 
                     stepItems.push({ subject: selectedSubject, type: 'THEORY', topic: topic });
 
-                    // Agenda revisões futuras na simulação
                     const intervals = getReviewIntervals(selectedSubject);
                     intervals.forEach(interval => {
-                        addReview(day + interval, selectedSubject);
+                        if (day + interval <= 60) addReview(day + interval, selectedSubject);
                     });
                 } else {
                     stepItems.push({ subject: selectedSubject, type: 'THEORY' }); 
                 }
             }
 
-            // Se for hoje, salvamos o resultado
             if (day === todayDay) {
-                todaysItems = stepItems;
-                
-                // Distribuir Tempo
-                if (todaysItems.length > 0) {
-                    const totalWeight = todaysItems.reduce((acc, item) => acc + (item.type === 'REVIEW' ? 1 : 2), 0);
-                    todaysItems.forEach(item => {
+                if (stepItems.length > 0) {
+                    const totalWeight = stepItems.reduce((acc, item) => acc + (item.type === 'REVIEW' ? 1 : 2), 0);
+                    stepItems.forEach(item => {
                         const weight = item.type === 'REVIEW' ? 1 : 2;
                         item.durationMinutes = Math.round((weight / totalWeight) * dailyAvailableTime);
                     });
                 }
+                return stepItems;
             }
         }
-
-        // Definir Fila
-        setTodaysQueue(todaysItems);
-        
-        if (todaysItems.length > 0) {
-            const duration = (todaysItems[0].durationMinutes || 25) * 60;
-            setTimeLeft(duration);
-            setInitialTime(duration);
-        }
+        return [];
     };
 
-    // --- CARREGAR ESTADO PERSISTIDO (SAFE) ---
+    // --- EFFECT PRINCIPAL: INICIALIZAÇÃO E RESTAURAÇÃO INTELIGENTE ---
     useEffect(() => {
-        let savedState = null;
+        // 1. Calcular a fila REAL para hoje com as configurações atuais
+        const freshQueue = calculateDailyQueue();
+        
+        let restored = false;
+        
+        // 2. Tentar restaurar progresso APENAS se a fila for compatível
         try {
-            savedState = localStorage.getItem('studyflow_player_state');
-        } catch(e) {}
-
-        if (savedState) {
-            try {
+            const savedState = localStorage.getItem('studyflow_player_state');
+            if (savedState) {
                 const parsed: PersistedPlayerState = JSON.parse(savedState);
                 const today = new Date().toISOString().split('T')[0];
                 
-                // Só restaura se for do mesmo dia
                 if (parsed.date === today && parsed.todaysQueue.length > 0) {
-                    // Restaurar referencias de Subject que podem ter sido atualizadas no App
-                    const rehydratedQueue = parsed.todaysQueue.map(item => {
-                        const freshSubject = subjects.find(s => s.id === item.subject.id) || item.subject;
-                        const freshTopic = item.topic ? freshSubject.topics.find(t => t.id === item.topic?.id) : undefined;
-                        return { ...item, subject: freshSubject, topic: freshTopic || item.topic };
-                    });
+                    // Verificar consistência: Os IDs das matérias e tópicos batem?
+                    // Criamos "assinaturas" simples das filas para comparar
+                    const savedSignature = parsed.todaysQueue.map(i => `${i.subject.id}-${i.type}-${i.topic?.id || 'none'}`).join('|');
+                    const freshSignature = freshQueue.map(i => `${i.subject.id}-${i.type}-${i.topic?.id || 'none'}`).join('|');
 
-                    setTodaysQueue(rehydratedQueue);
-                    setCurrentItemIndex(parsed.currentItemIndex);
-                    setTimeLeft(parsed.timeLeft);
-                    setInitialTime(parsed.initialTime);
-                    setElapsedTime(parsed.elapsedTime);
-                    return; 
+                    if (savedSignature === freshSignature) {
+                        // Se for idêntico, restauramos o progresso (índice, timer)
+                        // Precisamos re-hidratar os objetos Subject/Topic para ter referências atualizadas
+                        const rehydratedQueue = parsed.todaysQueue.map(item => {
+                            const freshSubject = subjects.find(s => s.id === item.subject.id) || item.subject;
+                            const freshTopic = item.topic ? freshSubject.topics.find(t => t.id === item.topic?.id) : undefined;
+                            return { ...item, subject: freshSubject, topic: freshTopic || item.topic };
+                        });
+
+                        setTodaysQueue(rehydratedQueue);
+                        setCurrentItemIndex(parsed.currentItemIndex);
+                        setTimeLeft(parsed.timeLeft);
+                        setInitialTime(parsed.initialTime);
+                        setElapsedTime(parsed.elapsedTime);
+                        restored = true;
+                    }
                 }
-            } catch (e) {
-                console.error("Erro ao carregar estado do player", e);
             }
+        } catch (e) {
+            console.error("Erro ao restaurar estado do player:", e);
         }
-        
-        generateDailyQueue();
-    }, [subjects, dailyAvailableTime, errorLogs]); // Recalcula se logs de erro mudarem para manter sync
+
+        // 3. Se não restaurou (porque é outro dia ou as configurações mudaram), usa a Fila Fresca
+        if (!restored) {
+            setTodaysQueue(freshQueue);
+            if (freshQueue.length > 0) {
+                const duration = (freshQueue[0].durationMinutes || 25) * 60;
+                setTimeLeft(duration);
+                setInitialTime(duration);
+            }
+            setCurrentItemIndex(0);
+            setElapsedTime(0);
+        }
+
+    }, [subjects, dailyAvailableTime, errorLogs]); // Dependências críticas que forçam recálculo
 
     // --- SALVAR ESTADO PERSISTIDO (Auto-save SAFE) ---
     useEffect(() => {
@@ -423,6 +431,19 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
     const time = formatTime(timeLeft);
     const currentItem = todaysQueue[currentItemIndex];
 
+    const handleRetry = () => {
+        // Força recálculo limpando estado
+        localStorage.removeItem('studyflow_player_state');
+        const queue = calculateDailyQueue();
+        setTodaysQueue(queue);
+        setCurrentItemIndex(0);
+        if (queue.length > 0) {
+            const d = (queue[0].durationMinutes || 25) * 60;
+            setTimeLeft(d);
+            setInitialTime(d);
+        }
+    };
+
     if (todaysQueue.length === 0) {
          return (
              <div className="flex-1 flex flex-col items-center justify-center p-4 md:p-8">
@@ -432,16 +453,16 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                      </div>
                      
                      <h2 className="text-2xl md:text-3xl font-black text-slate-900 dark:text-white mb-3 leading-tight">
-                         Vamos planejar o foco de hoje?
+                         Nada planejado para hoje?
                      </h2>
                      
                      <p className="text-slate-500 dark:text-slate-400 mb-8 leading-relaxed text-sm md:text-base">
-                         O algoritmo não encontrou atividades para HOJE. Verifique se o dia está marcado como ativo no calendário ou se você já completou a meta.
+                         O algoritmo não encontrou atividades para esta data. Pode ser um dia marcado como "Folga" nas configurações ou você não tem disciplinas ativas selecionadas.
                      </p>
                      
                      <div className="flex flex-col sm:flex-row gap-3 w-full">
                         <button 
-                            onClick={generateDailyQueue} 
+                            onClick={handleRetry} 
                             className="flex-1 flex items-center justify-center gap-2 px-6 py-3.5 bg-primary hover:bg-blue-600 text-white rounded-xl text-sm font-bold shadow-lg shadow-primary/20 transition-all active:scale-95"
                         >
                              <span className="material-symbols-outlined">refresh</span>
@@ -454,7 +475,7 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                                 className="flex-1 flex items-center justify-center gap-2 px-6 py-3.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-white rounded-xl text-sm font-bold transition-all active:scale-95"
                             >
                                  <span className="material-symbols-outlined">calendar_month</span>
-                                 Ver Calendário
+                                 Verificar Calendário
                              </button>
                          )}
                      </div>

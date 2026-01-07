@@ -67,7 +67,10 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
         }
     }, [dailyTimeMinutes]);
 
-    const activeSubjects = subjects.filter(s => s.active);
+    // Ordenação ESTÁVEL para garantir que o RNG funcione igual em todos os lugares
+    const activeSubjects = useMemo(() => {
+        return subjects.filter(s => s.active).sort((a, b) => a.id.localeCompare(b.id));
+    }, [subjects]);
 
     // Seleção manual de matérias para o plano (Filtro) com Try/Catch
     const [selectedSubjectIds, setSelectedSubjectIds] = useState<Set<string>>(() => {
@@ -165,6 +168,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
 
         // --- 1. CONSTRUÇÃO DO CICLO LINEAR (BARALHO VICIADO) ---
         let cycleDeck: Subject[] = [];
+        // Ordenação garantida pela memoização activeSubjects acima
         const planSubjects = activeSubjects.filter(s => selectedSubjectIds.has(s.id));
         
         if (planSubjects.length > 0) {
