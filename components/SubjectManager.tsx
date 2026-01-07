@@ -7,7 +7,7 @@ interface SubjectManagerProps {
     plans?: StudyPlan[]; // Para selecionar plano de origem
     onImportFromPlan?: (sourcePlanId: string, subjectIdsToCopy: string[]) => void;
     onDeleteSubject?: (id: string) => void;
-    onAddSubject?: (name: string) => void;
+    onAddSubject?: (name: string, weight: number, color?: string) => void;
     onToggleStatus?: (id: string) => void;
     onAddTopic?: (subjectId: string, name: string) => void;
     onRemoveTopic?: (subjectId: string, topicId: string) => void;
@@ -61,6 +61,8 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     // States for New Subject Modal
     const [isCreatingSubject, setIsCreatingSubject] = useState(false);
     const [newSubjectName, setNewSubjectName] = useState('');
+    const [newSubjectWeight, setNewSubjectWeight] = useState<number>(1);
+    const [newSubjectColor, setNewSubjectColor] = useState<string>('');
 
     // States for IMPORT FROM PLAN Modal
     const [isImporting, setIsImporting] = useState(false);
@@ -92,8 +94,8 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
         } catch(e) {}
 
         if (subjects.length > 0 && expandedSubjectId === null && !hasSaved) {
-            const lastId = subjects[subjects.length - 1].id;
-            setExpandedSubjectId(lastId);
+            // Em modo Grid, não selecionamos nada automaticamente para não quebrar a view
+            setExpandedSubjectId(null);
         }
     }, [subjects.length]);
 
@@ -137,8 +139,10 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
 
     const handleCreateSubjectSubmit = () => {
         if (newSubjectName.trim() && onAddSubject) {
-            onAddSubject(newSubjectName);
+            onAddSubject(newSubjectName, newSubjectWeight, newSubjectColor);
             setNewSubjectName('');
+            setNewSubjectWeight(1);
+            setNewSubjectColor('');
             setIsCreatingSubject(false);
         }
     };
@@ -323,176 +327,254 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
         ? allSubjects.filter(s => s.planId === sourcePlanId)
         : [];
 
-    const renderSubjectCard = (subject: Subject, isArchived: boolean) => {
-        const isExpanded = expandedSubjectId === subject.id;
+    const renderExpandedSubject = (subject: Subject) => {
         const subjectColorClass = subject.color ? `text-${subject.color}-600 dark:text-${subject.color}-400` : 'text-primary';
         const subjectBgClass = subject.color ? `bg-${subject.color}-100 dark:bg-${subject.color}-900/30` : 'bg-primary/10';
 
-        if (isExpanded) {
-            return (
-                <div key={subject.id} className="bg-card-light dark:bg-card-dark rounded-xl border-2 border-primary/20 dark:border-primary/20 shadow-lg overflow-hidden transition-all animate-in fade-in slide-in-from-bottom-2 duration-300 mb-4">
-                    {/* ... (código do header do card mantido igual) ... */}
-                    <div className="p-5 border-b border-border-light dark:border-border-dark bg-background-light/50 dark:bg-background-dark/30">
-                        <div className="flex flex-col md:flex-row gap-4 md:items-center justify-between">
-                            <div className="flex items-start gap-4">
-                                <div className={`size-14 rounded-lg flex items-center justify-center shrink-0 ${subjectBgClass} ${subjectColorClass}`}>
-                                    <span className="material-symbols-outlined fill text-3xl">{getSubjectIcon(subject.name)}</span>
-                                </div>
-                                <div className="flex flex-col gap-1">
-                                    <h3 className="text-xl font-bold text-text-primary-light dark:text-text-primary-dark">{subject.name}</h3>
-                                    <p className="text-sm text-text-secondary-light dark:text-text-secondary-dark">{subject.topics.length} tópicos cadastrados</p>
-                                </div>
+        return (
+            <div className="flex-1 flex flex-col h-full bg-card-light dark:bg-card-dark rounded-xl border border-border-light dark:border-border-dark overflow-hidden animate-in fade-in duration-200">
+                <div className="p-5 border-b border-border-light dark:border-border-dark bg-background-light/50 dark:bg-background-dark/30">
+                    <div className="flex flex-col md:flex-row gap-4 md:items-center justify-between">
+                        <div className="flex items-start gap-4">
+                            <div className={`size-14 rounded-lg flex items-center justify-center shrink-0 ${subjectBgClass} ${subjectColorClass}`}>
+                                <span className="material-symbols-outlined fill text-3xl">{getSubjectIcon(subject.name)}</span>
                             </div>
-                            <div className="flex flex-col sm:flex-row gap-3 sm:items-center mt-2 md:mt-0">
-                                <button onClick={() => onDeleteSubject && onDeleteSubject(subject.id)} className="px-3 py-1.5 text-xs font-medium bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-md flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">delete_forever</span> Excluir</button>
-                                <button onClick={() => toggleExpand(subject.id)} className="p-2 text-text-secondary-light dark:text-text-secondary-dark hover:bg-background-light dark:hover:bg-background-dark rounded-lg"><span className="material-symbols-outlined text-[20px]">expand_less</span></button>
+                            <div className="flex flex-col gap-1">
+                                <h3 className="text-2xl font-bold text-text-primary-light dark:text-text-primary-dark flex items-center gap-2">
+                                    {subject.name}
+                                    {subject.weight && <span className="text-xs bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 font-bold text-slate-500">Peso {subject.weight}</span>}
+                                </h3>
+                                <p className="text-sm text-text-secondary-light dark:text-text-secondary-dark">{subject.topics.length} tópicos cadastrados</p>
                             </div>
                         </div>
+                        <div className="flex items-center gap-3">
+                            <button onClick={() => onDeleteSubject && onDeleteSubject(subject.id)} className="px-3 py-1.5 text-xs font-medium bg-red-50 dark:bg-red-900/20 text-red-600 dark:text-red-400 hover:bg-red-100 dark:hover:bg-red-900/40 rounded-md flex items-center gap-1"><span className="material-symbols-outlined text-[16px]">delete_forever</span> Excluir</button>
+                            <button onClick={() => toggleExpand(subject.id)} className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors">
+                                <span className="material-symbols-outlined text-[18px]">grid_view</span> Voltar
+                            </button>
+                        </div>
                     </div>
-                    
-                    {/* TABS */}
-                    <div className="flex border-b border-border-light dark:border-border-dark bg-card-light dark:bg-card-dark px-5">
-                        <button onClick={() => setActiveTab('TOPICS')} className={`py-3 px-4 text-sm font-bold border-b-2 ${activeTab === 'TOPICS' ? 'border-primary text-primary' : 'border-transparent text-gray-500'}`}>Tópicos</button>
-                        <button onClick={() => setActiveTab('HISTORY')} className={`py-3 px-4 text-sm font-bold border-b-2 ${activeTab === 'HISTORY' ? 'border-primary text-primary' : 'border-transparent text-gray-500'}`}>Histórico</button>
-                    </div>
+                </div>
+                
+                {/* TABS */}
+                <div className="flex border-b border-border-light dark:border-border-dark bg-card-light dark:bg-card-dark px-5">
+                    <button onClick={() => setActiveTab('TOPICS')} className={`py-3 px-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'TOPICS' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Tópicos</button>
+                    <button onClick={() => setActiveTab('HISTORY')} className={`py-3 px-4 text-sm font-bold border-b-2 transition-colors ${activeTab === 'HISTORY' ? 'border-primary text-primary' : 'border-transparent text-gray-500 hover:text-gray-700'}`}>Histórico</button>
+                </div>
 
-                    <div className="p-5 bg-card-light dark:bg-card-dark flex flex-col gap-4">
-                        {activeTab === 'TOPICS' && (
-                            <>
-                                <div className="flex flex-col gap-2 max-h-[500px] overflow-y-auto pr-2 custom-scrollbar">
-                                    {subject.topics.map((topic, idx) => (
-                                        <div 
-                                            key={topic.id} 
-                                            draggable={editingTopicId === null}
-                                            onDragStart={() => handleDragStart(idx)}
-                                            onDragOver={handleDragOver}
-                                            onDrop={() => handleDrop(subject.id, idx)}
-                                            className={`group flex items-center gap-3 p-2 rounded-lg border transition-all ${draggedTopicIndex === idx ? 'opacity-50 border-primary border-dashed' : 'border-transparent hover:bg-gray-50 dark:hover:bg-white/5'} ${editingTopicId === topic.id ? 'bg-primary/5' : 'cursor-move'}`}
-                                        >
-                                             <div className="text-gray-300 dark:text-gray-600 p-1 cursor-grab active:cursor-grabbing"><span className="material-symbols-outlined text-[18px]">drag_indicator</span></div>
-                                             
-                                             {/* CHECKBOX CLICÁVEL PARA TOGGLE MANUAL */}
-                                             {editingTopicId !== topic.id && (
-                                                 <div 
-                                                    onClick={(e) => { 
-                                                        e.stopPropagation(); 
-                                                        if(onToggleTopicCompletion) onToggleTopicCompletion(subject.id, topic.id); 
-                                                    }}
-                                                    className={`size-5 rounded border flex items-center justify-center shrink-0 cursor-pointer transition-colors ${topic.completed ? 'bg-green-500 border-green-500 hover:bg-green-600' : 'border-gray-300 dark:border-gray-600 hover:border-primary'}`}
-                                                    title={topic.completed ? "Desmarcar conclusão" : "Marcar como concluído"}
-                                                 >
-                                                    {topic.completed && <span className="material-symbols-outlined text-white text-[14px]">check</span>}
-                                                 </div>
-                                             )}
-                                             
-                                             {editingTopicId === topic.id ? (
-                                                 <div className="flex-1 flex items-center gap-2">
-                                                     <input ref={editInputRef} type="text" value={editingTopicName} onChange={(e) => setEditingTopicName(e.target.value)} onKeyDown={(e) => handleEditKeyDown(e, subject.id)} onBlur={() => saveEditingTopic(subject.id)} className="flex-1 text-sm p-1.5 rounded border border-primary/50 bg-white dark:bg-black/20 focus:ring-1 focus:ring-primary outline-none" />
-                                                     <button onMouseDown={(e) => { e.preventDefault(); saveEditingTopic(subject.id); }} className="p-1 text-green-500 hover:bg-green-100 dark:hover:bg-green-900/30 rounded"><span className="material-symbols-outlined text-[18px]">check</span></button>
-                                                     <button onMouseDown={(e) => { e.preventDefault(); cancelEditingTopic(); }} className="p-1 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 rounded"><span className="material-symbols-outlined text-[18px]">close</span></button>
-                                                 </div>
-                                             ) : (
-                                                 <span className={`text-sm font-medium flex-1 ${topic.completed ? 'text-gray-400 line-through' : 'text-text-primary-light dark:text-text-primary-dark'}`} onDoubleClick={() => startEditingTopic(topic)}>{topic.name}</span>
-                                             )}
-                                             
-                                             {editingTopicId !== topic.id && (
-                                                 <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-                                                     <button onClick={() => startEditingTopic(topic)} className="text-gray-300 hover:text-primary p-1"><span className="material-symbols-outlined text-[18px]">edit</span></button>
-                                                     <button onClick={() => onRemoveTopic && onRemoveTopic(subject.id, topic.id)} className="text-gray-300 hover:text-red-500 p-1"><span className="material-symbols-outlined text-[18px]">close</span></button>
-                                                 </div>
-                                             )}
-                                        </div>
-                                    ))}
-                                </div>
-                                <div className="flex gap-2 mt-2 pt-4 border-t border-border-light dark:border-border-dark bg-background-light/30 dark:bg-background-dark/30 p-2 rounded-lg">
-                                    <input type="text" value={newTopicInput} onChange={(e) => setNewTopicInput(e.target.value)} onKeyDown={(e) => handleTopicKeyDown(e, subject.id)} placeholder="Novo tópico..." className="flex-1 bg-white dark:bg-card-dark border border-border-light dark:border-border-dark rounded-lg px-4 py-2 text-sm focus:ring-2 focus:ring-primary/50 outline-none" />
-                                    <button onClick={() => handleAddTopicSubmit(subject.id)} disabled={!newTopicInput.trim()} className="bg-primary text-white px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 hover:bg-blue-600"><span className="material-symbols-outlined text-[18px]">add</span></button>
-                                </div>
-                            </>
-                        )}
-                        {/* History Tab mantido */}
-                        {activeTab === 'HISTORY' && (
-                            <div className="flex flex-col gap-4 max-h-[500px] overflow-y-auto custom-scrollbar">
-                                {/* ... (código existente do histórico dentro do card) ... */}
-                                {(!subject.logs || subject.logs.length === 0) && <div className="text-center py-8 text-gray-400">Nenhum histórico.</div>}
-                                {subject.logs?.map(log => (
-                                    <div key={log.id} className="flex justify-between p-2 border-b border-gray-100 dark:border-gray-800 text-sm">
-                                        <span>{new Date(log.date).toLocaleDateString()} - {log.topicName}</span>
-                                        <span>{log.durationMinutes} min</span>
+                <div className="flex-1 overflow-y-auto p-5 custom-scrollbar bg-slate-50 dark:bg-[#0c0c1d]">
+                    {activeTab === 'TOPICS' && (
+                        <div className="max-w-3xl mx-auto">
+                            <div className="flex flex-col gap-2">
+                                {subject.topics.map((topic, idx) => (
+                                    <div 
+                                        key={topic.id} 
+                                        draggable={editingTopicId === null}
+                                        onDragStart={() => handleDragStart(idx)}
+                                        onDragOver={handleDragOver}
+                                        onDrop={() => handleDrop(subject.id, idx)}
+                                        className={`group flex items-center gap-3 p-3 rounded-lg border bg-white dark:bg-card-dark transition-all ${draggedTopicIndex === idx ? 'opacity-50 border-primary border-dashed' : 'border-transparent hover:border-slate-200 dark:hover:border-slate-700 shadow-sm'} ${editingTopicId === topic.id ? 'bg-primary/5' : 'cursor-move'}`}
+                                    >
+                                            <div className="text-gray-300 dark:text-gray-600 p-1 cursor-grab active:cursor-grabbing"><span className="material-symbols-outlined text-[18px]">drag_indicator</span></div>
+                                            
+                                            {/* CHECKBOX CLICÁVEL PARA TOGGLE MANUAL */}
+                                            {editingTopicId !== topic.id && (
+                                                <div 
+                                                onClick={(e) => { 
+                                                    e.stopPropagation(); 
+                                                    if(onToggleTopicCompletion) onToggleTopicCompletion(subject.id, topic.id); 
+                                                }}
+                                                className={`size-5 rounded border flex items-center justify-center shrink-0 cursor-pointer transition-colors ${topic.completed ? 'bg-green-500 border-green-500 hover:bg-green-600' : 'border-gray-300 dark:border-gray-600 hover:border-primary'}`}
+                                                title={topic.completed ? "Desmarcar conclusão" : "Marcar como concluído"}
+                                                >
+                                                {topic.completed && <span className="material-symbols-outlined text-white text-[14px]">check</span>}
+                                                </div>
+                                            )}
+                                            
+                                            {editingTopicId === topic.id ? (
+                                                <div className="flex-1 flex items-center gap-2">
+                                                    <input ref={editInputRef} type="text" value={editingTopicName} onChange={(e) => setEditingTopicName(e.target.value)} onKeyDown={(e) => handleEditKeyDown(e, subject.id)} onBlur={() => saveEditingTopic(subject.id)} className="flex-1 text-sm p-1.5 rounded border border-primary/50 bg-white dark:bg-black/20 focus:ring-1 focus:ring-primary outline-none" />
+                                                    <button onMouseDown={(e) => { e.preventDefault(); saveEditingTopic(subject.id); }} className="p-1 text-green-500 hover:bg-green-100 dark:hover:bg-green-900/30 rounded"><span className="material-symbols-outlined text-[18px]">check</span></button>
+                                                    <button onMouseDown={(e) => { e.preventDefault(); cancelEditingTopic(); }} className="p-1 text-red-500 hover:bg-red-100 dark:hover:bg-red-900/30 rounded"><span className="material-symbols-outlined text-[18px]">close</span></button>
+                                                </div>
+                                            ) : (
+                                                <span className={`text-sm font-medium flex-1 ${topic.completed ? 'text-gray-400 line-through' : 'text-text-primary-light dark:text-text-primary-dark'}`} onDoubleClick={() => startEditingTopic(topic)}>{topic.name}</span>
+                                            )}
+                                            
+                                            {editingTopicId !== topic.id && (
+                                                <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <button onClick={() => startEditingTopic(topic)} className="text-gray-300 hover:text-primary p-1"><span className="material-symbols-outlined text-[18px]">edit</span></button>
+                                                    <button onClick={() => onRemoveTopic && onRemoveTopic(subject.id, topic.id)} className="text-gray-300 hover:text-red-500 p-1"><span className="material-symbols-outlined text-[18px]">close</span></button>
+                                                </div>
+                                            )}
                                     </div>
                                 ))}
                             </div>
-                        )}
-                    </div>
-                </div>
-            );
-        }
-        
-        // Collapsed View
-        return (
-            <div key={subject.id} className={`group bg-card-light dark:bg-card-dark rounded-xl border border-border-light dark:border-border-dark p-5 hover:border-primary/50 hover:shadow-md transition-all cursor-pointer mb-4 ${isArchived ? 'opacity-75 grayscale-[0.5]' : ''}`} onClick={() => toggleExpand(subject.id)}>
-                <div className="flex flex-col md:flex-row gap-4 md:items-center justify-between">
-                    <div className="flex items-start gap-4">
-                        <div className={`size-12 rounded-lg flex items-center justify-center shrink-0 ${subjectBgClass} ${subjectColorClass}`}>
-                            <span className="material-symbols-outlined fill">{isArchived ? 'archive' : getSubjectIcon(subject.name)}</span>
+                            <div className="flex gap-2 mt-4 bg-white dark:bg-card-dark p-3 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800">
+                                <input type="text" value={newTopicInput} onChange={(e) => setNewTopicInput(e.target.value)} onKeyDown={(e) => handleTopicKeyDown(e, subject.id)} placeholder="Adicionar novo tópico..." className="flex-1 bg-transparent border-none focus:ring-0 text-sm outline-none px-2" />
+                                <button onClick={() => handleAddTopicSubmit(subject.id)} disabled={!newTopicInput.trim()} className="bg-primary text-white size-8 rounded-lg flex items-center justify-center hover:bg-blue-600 disabled:opacity-50"><span className="material-symbols-outlined text-[20px]">add</span></button>
+                            </div>
                         </div>
-                        <div className="flex flex-col gap-1">
-                            <h3 className="text-lg font-bold text-text-primary-light dark:text-text-primary-dark">{subject.name}</h3>
-                            <p className="text-sm text-text-secondary-light dark:text-text-secondary-dark">{subject.topics.length} Tópicos</p>
+                    )}
+                    {/* History Tab */}
+                    {activeTab === 'HISTORY' && (
+                        <div className="max-w-3xl mx-auto flex flex-col gap-4">
+                            {(!subject.logs || subject.logs.length === 0) && <div className="text-center py-12 text-gray-400 border-2 border-dashed border-slate-200 dark:border-slate-800 rounded-xl">Nenhum histórico registrado.</div>}
+                            {subject.logs?.map(log => (
+                                <div key={log.id} className="flex justify-between items-center p-4 bg-white dark:bg-card-dark rounded-xl border border-slate-200 dark:border-slate-800 text-sm shadow-sm">
+                                    <div className="flex flex-col">
+                                        <span className="font-bold text-slate-800 dark:text-white">{log.topicName}</span>
+                                        <span className="text-xs text-slate-500">{new Date(log.date).toLocaleDateString()}</span>
+                                    </div>
+                                    <span className="font-mono bg-slate-100 dark:bg-slate-800 px-2 py-1 rounded text-xs">{log.durationMinutes} min</span>
+                                </div>
+                            ))}
                         </div>
-                    </div>
+                    )}
                 </div>
             </div>
         );
     };
 
     return (
-        <div className="flex-1 overflow-y-auto p-4 md:p-8 relative">
-            <div className="max-w-[1200px] mx-auto flex flex-col gap-8">
-                {/* ... (Cabeçalho e Filtros mantidos) ... */}
-                <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
-                    <h1 className="text-3xl md:text-4xl font-black text-text-primary-light dark:text-text-primary-dark">Configuração do Ciclo</h1>
-                    <div className="flex gap-2">
-                        {plans.length > 1 && (
-                            <button onClick={() => setIsImporting(true)} className="flex items-center gap-2 h-11 px-4 bg-white dark:bg-card-dark border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-all">
-                                <span className="material-symbols-outlined text-[18px]">input</span> 
-                                <span className="hidden sm:inline">Importar</span>
-                            </button>
+        <div className="flex-1 overflow-hidden relative flex flex-col h-full">
+            {/* SE UMA DISCIPLINA ESTIVER EXPANDIDA, MOSTRA APENAS ELA (MODO FOCO) */}
+            {expandedSubjectId ? (
+                <div className="flex-1 p-4 md:p-6 overflow-hidden">
+                    {subjects.find(s => s.id === expandedSubjectId) ? renderExpandedSubject(subjects.find(s => s.id === expandedSubjectId)!) : toggleExpand('')}
+                </div>
+            ) : (
+                // MODO GRID (VISÃO GERAL)
+                <div className="flex-1 overflow-y-auto p-4 md:p-8 custom-scrollbar">
+                    <div className="max-w-[1600px] mx-auto flex flex-col gap-8">
+                        <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
+                            <h1 className="text-3xl md:text-4xl font-black text-text-primary-light dark:text-text-primary-dark">Configuração do Ciclo</h1>
+                            <div className="flex gap-2">
+                                {plans.length > 1 && (
+                                    <button onClick={() => setIsImporting(true)} className="flex items-center gap-2 h-11 px-4 bg-white dark:bg-card-dark border border-gray-200 dark:border-gray-700 text-gray-700 dark:text-gray-200 font-bold rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 transition-all">
+                                        <span className="material-symbols-outlined text-[18px]">input</span> 
+                                        <span className="hidden sm:inline">Importar</span>
+                                    </button>
+                                )}
+                                <button onClick={() => setIsCreatingSubject(true)} className="flex items-center gap-2 h-11 px-5 bg-primary text-white font-bold rounded-lg shadow-lg hover:bg-blue-700 transition-all"><span className="material-symbols-outlined">add</span> Nova Disciplina</button>
+                            </div>
+                        </div>
+
+                        {activeSubjects.length > 0 ? (
+                            <div className="flex flex-col gap-4">
+                                <h2 className="text-sm font-bold uppercase tracking-wider text-primary">No Plano de Estudos</h2>
+                                
+                                {/* GRID LAYOUT MUDANÇA PRINCIPAL */}
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-4">
+                                    {activeSubjects.map(subject => {
+                                        const subjectColorClass = subject.color ? `text-${subject.color}-600 dark:text-${subject.color}-400` : 'text-primary';
+                                        const subjectBgClass = subject.color ? `bg-${subject.color}-100 dark:bg-${subject.color}-900/30` : 'bg-primary/10';
+                                        
+                                        return (
+                                            <div 
+                                                key={subject.id} 
+                                                onClick={() => toggleExpand(subject.id)}
+                                                className="group bg-card-light dark:bg-card-dark rounded-xl border border-border-light dark:border-border-dark p-4 hover:border-primary/50 hover:shadow-md transition-all cursor-pointer relative flex flex-col justify-between h-[140px]"
+                                            >
+                                                <div className="flex justify-between items-start">
+                                                    <div className={`size-10 rounded-lg flex items-center justify-center ${subjectBgClass} ${subjectColorClass}`}>
+                                                        <span className="material-symbols-outlined fill text-xl">{getSubjectIcon(subject.name)}</span>
+                                                    </div>
+                                                    {subject.weight && subject.weight > 1 && (
+                                                        <span className="text-[10px] font-black uppercase bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded">
+                                                            Peso {subject.weight}
+                                                        </span>
+                                                    )}
+                                                </div>
+                                                
+                                                <div>
+                                                    <h3 className="font-bold text-base text-text-primary-light dark:text-text-primary-dark line-clamp-2 leading-tight mb-1" title={subject.name}>
+                                                        {subject.name}
+                                                    </h3>
+                                                    <p className="text-xs text-text-secondary-light dark:text-text-secondary-dark">{subject.topics.length} Tópicos</p>
+                                                </div>
+
+                                                <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                                                    <span className="material-symbols-outlined text-gray-400">open_in_full</span>
+                                                </div>
+                                            </div>
+                                        );
+                                    })}
+                                </div>
+                            </div>
+                        ) : (
+                            <div className="text-center py-20 text-gray-400">
+                                <span className="material-symbols-outlined text-6xl mb-4">layers_clear</span>
+                                <p className="text-lg">Nenhuma disciplina neste plano.</p>
+                                <p className="text-sm">Crie uma nova ou importe de outro edital.</p>
+                            </div>
                         )}
-                        <button onClick={() => setIsCreatingSubject(true)} className="flex items-center gap-2 h-11 px-5 bg-primary text-white font-bold rounded-lg shadow-lg hover:bg-blue-700 transition-all"><span className="material-symbols-outlined">add</span> Nova Disciplina</button>
                     </div>
                 </div>
+            )}
 
-                {/* Lista de Subjects */}
-                {activeSubjects.length > 0 ? (
-                    <div className="flex flex-col gap-4">
-                        <h2 className="text-sm font-bold uppercase tracking-wider text-primary">No Plano de Estudos</h2>
-                        {activeSubjects.map(s => renderSubjectCard(s, false))}
-                    </div>
-                ) : (
-                    <div className="text-center py-20 text-gray-400">
-                        <span className="material-symbols-outlined text-6xl mb-4">layers_clear</span>
-                        <p className="text-lg">Nenhuma disciplina neste plano.</p>
-                        <p className="text-sm">Crie uma nova ou importe de outro edital.</p>
-                    </div>
-                )}
-            </div>
-
-            {/* Modal de Criação */}
+            {/* Modal de Criação (ATUALIZADO COM PESO E COR) */}
             {isCreatingSubject && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm">
-                    <div className="bg-white dark:bg-card-dark p-6 rounded-xl shadow-xl w-full max-w-md">
-                        <h3 className="text-lg font-bold mb-4 text-gray-900 dark:text-white">Nova Disciplina</h3>
-                        <input autoFocus type="text" value={newSubjectName} onChange={(e) => setNewSubjectName(e.target.value)} onKeyDown={(e) => e.key === 'Enter' && handleCreateSubjectSubmit()} className="w-full border border-gray-300 dark:border-gray-700 p-2 rounded mb-4 text-black dark:text-white bg-white dark:bg-black/20 focus:ring-2 focus:ring-primary outline-none" placeholder="Nome..." />
-                        <div className="flex justify-end gap-2">
-                            <button onClick={() => setIsCreatingSubject(false)} className="px-4 py-2 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800">Cancelar</button>
-                            <button onClick={handleCreateSubjectSubmit} className="px-4 py-2 bg-primary text-white rounded font-bold hover:bg-blue-600">Criar</button>
+                <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-in fade-in">
+                    <div className="bg-white dark:bg-card-dark p-6 rounded-xl shadow-xl w-full max-w-md border border-slate-200 dark:border-slate-800">
+                        <h3 className="text-lg font-bold mb-6 text-gray-900 dark:text-white flex items-center gap-2">
+                            <span className="material-symbols-outlined text-primary">add_circle</span>
+                            Nova Disciplina
+                        </h3>
+                        
+                        <div className="flex flex-col gap-4">
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-bold uppercase text-slate-500">Nome</label>
+                                <input 
+                                    autoFocus 
+                                    type="text" 
+                                    value={newSubjectName} 
+                                    onChange={(e) => setNewSubjectName(e.target.value)} 
+                                    onKeyDown={(e) => e.key === 'Enter' && handleCreateSubjectSubmit()} 
+                                    className="w-full border border-gray-300 dark:border-gray-700 p-2.5 rounded-lg text-black dark:text-white bg-white dark:bg-black/20 focus:ring-2 focus:ring-primary outline-none" 
+                                    placeholder="Ex: Direito Constitucional" 
+                                />
+                            </div>
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-bold uppercase text-slate-500">Peso no Edital</label>
+                                <div className="flex items-center gap-2">
+                                    <input 
+                                        type="range" 
+                                        min="1" 
+                                        max="5" 
+                                        step="0.5" 
+                                        value={newSubjectWeight} 
+                                        onChange={(e) => setNewSubjectWeight(parseFloat(e.target.value))} 
+                                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 accent-primary" 
+                                    />
+                                    <span className="w-12 text-center font-bold text-primary bg-primary/10 rounded px-1">{newSubjectWeight}x</span>
+                                </div>
+                            </div>
+
+                            <div className="flex flex-col gap-1.5">
+                                <label className="text-xs font-bold uppercase text-slate-500">Cor (Opcional)</label>
+                                <div className="flex flex-wrap gap-2">
+                                    {AVAILABLE_COLORS.map(c => (
+                                        <button
+                                            key={c}
+                                            onClick={() => setNewSubjectColor(newSubjectColor === c ? '' : c)}
+                                            className={`size-6 rounded-full bg-${c}-500 transition-all ${newSubjectColor === c ? 'ring-2 ring-offset-2 ring-primary dark:ring-offset-gray-900 scale-110' : 'hover:scale-110 opacity-70 hover:opacity-100'}`}
+                                        />
+                                    ))}
+                                </div>
+                            </div>
+                        </div>
+
+                        <div className="flex justify-end gap-2 mt-8 pt-4 border-t border-slate-100 dark:border-slate-800">
+                            <button onClick={() => setIsCreatingSubject(false)} className="px-4 py-2 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-bold">Cancelar</button>
+                            <button onClick={handleCreateSubjectSubmit} disabled={!newSubjectName.trim()} className="px-6 py-2 bg-primary text-white rounded-lg text-sm font-bold hover:bg-blue-600 disabled:opacity-50 shadow-lg shadow-primary/20">Criar</button>
                         </div>
                     </div>
                 </div>
             )}
 
-            {/* Modal de Importação */}
+            {/* Modal de Importação (Mantido) */}
             {isImporting && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm animate-in fade-in duration-200">
                     <div className="bg-white dark:bg-[#1e1e2d] w-full max-w-lg rounded-2xl shadow-2xl border border-gray-200 dark:border-gray-800 flex flex-col max-h-[85vh]">

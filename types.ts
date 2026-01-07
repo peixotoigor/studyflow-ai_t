@@ -75,6 +75,7 @@ export interface Subject {
     topics: Topic[];
     active: boolean;
     color?: string;
+    weight?: number; // Nova propriedade: Peso no Edital
     priority?: PriorityLevel; 
     proficiency?: ProficiencyLevel;
     logs?: StudyLog[];

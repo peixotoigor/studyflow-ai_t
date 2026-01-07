@@ -576,36 +576,30 @@ function App() {
   const handleToggleSubjectStatus = (id: string) => setSubjects(prev => prev.map(s => s.id === id ? { ...s, active: !s.active } : s));
   
   // --- SMART COLOR SELECTION LOGIC ---
-  const handleAddManualSubject = (name: string) => {
+  const handleAddManualSubject = (name: string, weight: number = 1, manualColor?: string) => {
       if (name?.trim()) {
-          // 1. Conta a frequência de cada cor nas matérias ATIVAS
-          const colorCounts: Record<string, number> = {};
-          AUTO_COLORS.forEach(c => colorCounts[c] = 0);
-          
-          subjects.forEach(s => {
-              if (s.active && s.color && colorCounts[s.color] !== undefined) {
-                  colorCounts[s.color]++;
-              }
-          });
+          // Lógica de Cor: Se manualColor for passado, usa ele. Senão, usa lógica smart.
+          let nextColor = manualColor;
 
-          // 2. Encontra o menor número de uso
-          let minCount = Infinity;
-          Object.values(colorCounts).forEach(count => {
-              if (count < minCount) minCount = count;
-          });
-
-          // 3. Filtra as cores que têm esse menor uso (candidatas)
-          const candidates = AUTO_COLORS.filter(c => colorCounts[c] === minCount);
-
-          // 4. Seleciona aleatoriamente entre as candidatas
-          const nextColor = candidates[Math.floor(Math.random() * candidates.length)];
+          if (!nextColor) {
+              const colorCounts: Record<string, number> = {};
+              AUTO_COLORS.forEach(c => colorCounts[c] = 0);
+              subjects.forEach(s => {
+                  if (s.active && s.color && colorCounts[s.color] !== undefined) colorCounts[s.color]++;
+              });
+              let minCount = Infinity;
+              Object.values(colorCounts).forEach(count => { if (count < minCount) minCount = count; });
+              const candidates = AUTO_COLORS.filter(c => colorCounts[c] === minCount);
+              nextColor = candidates[Math.floor(Math.random() * candidates.length)];
+          }
 
           setSubjects(prev => [...prev, { 
               id: `manual-${Date.now()}`, 
               planId: currentPlanId, 
               name, 
               active: true, 
-              color: nextColor, 
+              color: nextColor || 'blue', 
+              weight: weight, // Adicionado Peso
               topics: [], 
               priority: 'MEDIUM', 
               proficiency: 'INTERMEDIATE', 
