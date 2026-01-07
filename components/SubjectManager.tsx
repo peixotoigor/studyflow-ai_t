@@ -99,6 +99,13 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
         }
     }, [subjects.length]);
 
+    // Cleanup effect: if expanded subject is deleted/missing, clear the state
+    useEffect(() => {
+        if (expandedSubjectId && !subjects.find(s => s.id === expandedSubjectId)) {
+            setExpandedSubjectId(null);
+        }
+    }, [subjects, expandedSubjectId]);
+
     // Salvar estado expandido com proteção
     useEffect(() => {
         try {
@@ -441,7 +448,7 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
             {/* SE UMA DISCIPLINA ESTIVER EXPANDIDA, MOSTRA APENAS ELA (MODO FOCO) */}
             {expandedSubjectId ? (
                 <div className="flex-1 p-4 md:p-6 overflow-hidden">
-                    {subjects.find(s => s.id === expandedSubjectId) ? renderExpandedSubject(subjects.find(s => s.id === expandedSubjectId)!) : toggleExpand('')}
+                    {subjects.find(s => s.id === expandedSubjectId) ? renderExpandedSubject(subjects.find(s => s.id === expandedSubjectId)!) : null}
                 </div>
             ) : (
                 // MODO GRID (VISÃO GERAL)
