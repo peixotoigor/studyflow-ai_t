@@ -11,7 +11,7 @@ import { SimulatedExams } from './components/SimulatedExams';
 import { SavedNotes } from './components/SavedNotes'; 
 import { ProfileModal } from './components/ProfileModal';
 import { BottomNavigation } from './components/BottomNavigation';
-import { Screen, UserProfile, Subject, ImporterState, Topic, ErrorLog, StudyLog, StudyPlan, SimulatedExam, SavedNote } from './types';
+import { Screen, UserProfile, Subject, ImporterState, Topic, ErrorLog, StudyLog, StudyPlan, SimulatedExam, SavedNote, StudyModality } from './types';
 
 // Dados iniciais vazios
 const INITIAL_SUBJECTS: Subject[] = [];
@@ -589,10 +589,19 @@ function App() {
   };
   const handleUpdateSubject = (us: Subject) => setSubjects(prev => prev.map(s => s.id === us.id ? us : s));
   
-  const handleSessionComplete = (sId: string, tId: string, d: number, q: number, c: number, finished: boolean) => {
+  const handleSessionComplete = (sId: string, tId: string, d: number, q: number, c: number, finished: boolean, modalities: StudyModality[]) => {
       setSubjects(prev => prev.map(s => {
           if (s.id !== sId) return s;
-          const log: StudyLog = { id: Date.now().toString(), date: new Date(), topicId: tId, topicName: s.topics.find(t => t.id === tId)?.name || 'Geral', durationMinutes: d, questionsCount: q, correctCount: c };
+          const log: StudyLog = { 
+              id: Date.now().toString(), 
+              date: new Date(), 
+              topicId: tId, 
+              topicName: s.topics.find(t => t.id === tId)?.name || 'Geral', 
+              durationMinutes: d, 
+              questionsCount: q, 
+              correctCount: c,
+              modalities: modalities 
+          };
           return { ...s, topics: s.topics.map(t => t.id === tId && finished ? { ...t, completed: true } : t), logs: [log, ...(s.logs || [])] };
       }));
   };

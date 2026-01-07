@@ -7,7 +7,7 @@ interface StudyPlayerProps {
     model?: string;
     subjects?: Subject[];
     dailyAvailableTime?: number; // minutos
-    onSessionComplete?: (subjectId: string, topicId: string, duration: number, questions: number, correct: number, isFinished: boolean) => void;
+    onSessionComplete?: (subjectId: string, topicId: string, duration: number, questions: number, correct: number, isFinished: boolean, modalities: StudyModality[]) => void;
     onNavigate?: (screen: Screen) => void;
     onSaveNote?: (content: string, subject: string, topic: string) => void;
 }
@@ -43,8 +43,8 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
     const [questionsCorrect, setQuestionsCorrect] = useState(0);
     const [isTopicFinished, setIsTopicFinished] = useState(false);
     
-    // Novo Estado de Modalidade
-    const [selectedModality, setSelectedModality] = useState<StudyModality>('PDF');
+    // Novo Estado de Modalidade (Array para Múltipla Seleção)
+    const [selectedModalities, setSelectedModalities] = useState<StudyModality[]>(['PDF']);
 
     // --- CARREGAR ESTADO PERSISTIDO (SAFE) ---
     useEffect(() => {
@@ -190,14 +190,14 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         if (onSessionComplete && currentItem) {
             const finalTopicId = sessionTopicId || (currentItem.topic ? currentItem.topic.id : '');
             
-            // Aqui poderíamos passar a modalidade também no futuro se alterarmos a assinatura do onSessionComplete
             onSessionComplete(
                 currentItem.subject.id,
                 finalTopicId, 
                 sessionDuration,
                 questionsDone,
                 questionsCorrect,
-                isTopicFinished
+                isTopicFinished,
+                selectedModalities
             );
         }
 
@@ -248,6 +248,19 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
         const m = Math.floor((seconds % 3600) / 60);
         const s = seconds % 60;
         return { h, m, s };
+    };
+
+    // Toggle Modalidade (Multi-select)
+    const toggleModality = (id: StudyModality) => {
+        setSelectedModalities(prev => {
+            if (prev.includes(id)) {
+                // Não permite deixar vazio, se for o único, não remove
+                if (prev.length === 1) return prev;
+                return prev.filter(m => m !== id);
+            } else {
+                return [...prev, id];
+            }
+        });
     };
 
     const time = formatTime(timeLeft);
@@ -362,22 +375,26 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                                 </div>
                             </div>
 
-                            {/* Modality Selector */}
-                            <div className="flex justify-center gap-2 mb-8">
-                                {modalities.map(m => (
-                                    <button
-                                        key={m.id}
-                                        onClick={() => setSelectedModality(m.id)}
-                                        className={`flex flex-col items-center gap-1 p-2 w-20 rounded-lg border transition-all ${
-                                            selectedModality === m.id 
-                                            ? 'bg-primary/10 border-primary text-primary' 
-                                            : 'bg-transparent border-transparent text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800'
-                                        }`}
-                                    >
-                                        <span className="material-symbols-outlined">{m.icon}</span>
-                                        <span className="text-[9px] font-bold">{m.label}</span>
-                                    </button>
-                                ))}
+                            {/* Modality Selector (Multi-Select) */}
+                            <div className="flex justify-center flex-wrap gap-2 mb-8">
+                                {modalities.map(m => {
+                                    const isSelected = selectedModalities.includes(m.id);
+                                    return (
+                                        <button
+                                            key={m.id}
+                                            onClick={() => toggleModality(m.id)}
+                                            className={`flex flex-col items-center gap-1 p-2 w-20 rounded-lg border transition-all active:scale-95 ${
+                                                isSelected 
+                                                ? 'bg-primary/10 border-primary text-primary shadow-sm' 
+                                                : 'bg-transparent border-transparent text-slate-400 hover:bg-slate-50 dark:hover:bg-slate-800 opacity-70 hover:opacity-100'
+                                            }`}
+                                        >
+                                            <span className="material-symbols-outlined">{m.icon}</span>
+                                            <span className="text-[9px] font-bold">{m.label}</span>
+                                            {isSelected && <span className="absolute top-1 right-1 w-2 h-2 bg-primary rounded-full"></span>}
+                                        </button>
+                                    );
+                                })}
                             </div>
                             
                             {/* TIMER DISPLAY */}
@@ -592,14 +609,19 @@ export const StudyPlayer: React.FC<StudyPlayerProps> = ({ apiKey, model, subject
                         
                         <div className="p-6 flex flex-col gap-6">
                             
-                            {/* Modalidade (Somente Leitura para confirmação visual) */}
-                             <div className="flex items-center gap-3 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
-                                <div className="bg-primary/10 text-primary p-2 rounded">
-                                    <span className="material-symbols-outlined">{modalities.find(m => m.id === selectedModality)?.icon}</span>
-                                </div>
-                                <div className="flex flex-col">
-                                    <span className="text-xs uppercase text-slate-400 font-bold">Modalidade Realizada</span>
-                                    <span className="text-sm font-bold text-slate-900 dark:text-white">{modalities.find(m => m.id === selectedModality)?.label}</span>
+                            {/* Modalidades Selecionadas */}
+                             <div className="flex flex-col gap-2 p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
+                                <span className="text-xs uppercase text-slate-400 font-bold">Modalidades Realizadas</span>
+                                <div className="flex flex-wrap gap-2">
+                                    {selectedModalities.map(m => {
+                                        const mod = modalities.find(mod => mod.id === m);
+                                        return (
+                                            <div key={m} className="flex items-center gap-1.5 bg-white dark:bg-black/20 border border-slate-200 dark:border-slate-700 px-2 py-1 rounded text-xs font-bold text-slate-700 dark:text-slate-300">
+                                                <span className="material-symbols-outlined text-[14px] text-primary">{mod?.icon}</span>
+                                                {mod?.label}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             </div>
 

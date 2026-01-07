@@ -46,7 +46,7 @@ export interface StudyLog {
     durationMinutes: number;
     questionsCount: number;
     correctCount: number;
-    modality?: StudyModality; // Novo campo
+    modalities?: StudyModality[]; // Alterado para Array
     notes?: string;
 }
 
