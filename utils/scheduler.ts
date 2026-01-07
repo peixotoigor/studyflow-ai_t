@@ -22,21 +22,23 @@ export const generateMonthlySchedule = (
     errorLogs: ErrorLog[],
     settings: ScheduleSettings,
     dailyTimeMinutes: number,
-    // Se fornecido, retorna apenas a fila deste dia específico para performance
     targetDayOnly?: number 
 ): Record<number, ScheduleItem[] | null> => {
     const schedule: Record<number, ScheduleItem[] | null> = {};
     
-    // 1. Normalização e Ordenação (CRÍTICO)
+    // 1. Normalização e Ordenação
     const activeSubjects = subjects.filter(s => s.active).sort((a, b) => a.id.localeCompare(b.id));
     if (activeSubjects.length === 0) return {};
 
     const year = viewingDate.getFullYear();
     const month = viewingDate.getMonth();
     const daysInMonth = new Date(year, month + 1, 0).getDate();
+    
+    // Data de "Hoje" zerada para comparação
+    const today = new Date();
+    today.setHours(0, 0, 0, 0);
 
     // 3. Setup do Deck (Baralho)
-    // Seed baseada no Ano e Mês para garantir consistência visual no calendário
     const seedBase = year * 1000 + month;
     const random = seededRandom(seedBase);
 
@@ -50,7 +52,7 @@ export const generateMonthlySchedule = (
         for(let k=0; k < totalWeight; k++) cycleDeck.push(sub);
     });
 
-    // Embaralhamento Fisher-Yates com Seed
+    // Embaralhamento Fisher-Yates
     for (let i = cycleDeck.length - 1; i > 0; i--) {
         const j = Math.floor(random() * (i + 1));
         [cycleDeck[i], cycleDeck[j]] = [cycleDeck[j], cycleDeck[i]];
@@ -63,17 +65,17 @@ export const generateMonthlySchedule = (
         }
     }
 
-    // 4. Variáveis de Estado da Simulação
+    // 4. Variáveis de Estado
     let globalDeckCursor = 0;
     const pendingReviews: { [key: number]: Subject[] } = {};
     const subjectTopicCursors: Record<string, number> = {};
-    
-    // Contagem de Erros para SRS
     const subjectErrorCounts: Record<string, number> = {};
+    
     errorLogs.forEach(log => {
         subjectErrorCounts[log.subjectId] = (subjectErrorCounts[log.subjectId] || 0) + 1;
     });
 
+    // Inicializa cursores no primeiro tópico NÃO concluído
     activeSubjects.forEach(s => {
         const firstPendingIndex = s.topics.findIndex(t => !t.completed);
         subjectTopicCursors[s.id] = firstPendingIndex === -1 ? 0 : firstPendingIndex;
@@ -93,20 +95,19 @@ export const generateMonthlySchedule = (
             return [1, 7, 14]; 
         }
         const subErrors = subjectErrorCounts[subject.id] || 0;
-        // Lógica simplificada de acurácia (poderia vir dos logs)
         if (subErrors > 3) return [1, 3, 7]; 
         return [1, 7, 14];
     };
 
     const addReview = (targetDay: number, subject: Subject) => {
         if (!pendingReviews[targetDay]) pendingReviews[targetDay] = [];
+        // Evita duplicatas de revisão para a mesma matéria no mesmo dia
         if (!pendingReviews[targetDay].some(s => s.id === subject.id)) {
             pendingReviews[targetDay].push(subject);
         }
     };
 
-    // 5. Loop de Simulação (Dia a Dia)
-    // Se targetDayOnly for definido, rodamos até ele. Se não, rodamos o mês todo.
+    // 5. Loop Principal (Dia a Dia)
     const limitDay = targetDayOnly || daysInMonth;
 
     for (let day = 1; day <= limitDay; day++) {
@@ -114,11 +115,53 @@ export const generateMonthlySchedule = (
         const currentDayOfWeek = currentDateObj.getDay();
         const isDayActive = settings.activeWeekDays.includes(currentDayOfWeek);
         
+        const isPastDate = currentDateObj < today;
+
         const dailyItems: ScheduleItem[] = [];
 
+        // =================================================================================
+        // RAMIFICAÇÃO A: PROCESSAR PASSADO (Baseado em LOGS REAIS)
+        // =================================================================================
+        if (isPastDate) {
+            const dateStr = currentDateObj.toISOString().split('T')[0];
+            
+            // Procura logs reais para este dia
+            activeSubjects.forEach(sub => {
+                if (sub.logs) {
+                    sub.logs.forEach(log => {
+                        const logDateStr = new Date(log.date).toISOString().split('T')[0];
+                        if (logDateStr === dateStr) {
+                            const topicObj = sub.topics.find(t => t.id === log.topicId) || { id: 'unknown', name: log.topicName, completed: true };
+                            
+                            // Adiciona item histórico ao agendamento
+                            dailyItems.push({
+                                subject: sub,
+                                type: 'THEORY', // Logs passados contam como estudo realizado
+                                topic: topicObj as Topic,
+                                durationMinutes: log.durationMinutes
+                            });
+
+                            // CRÍTICO: O estudo passado GERA revisões futuras
+                            const intervals = getReviewIntervals(sub);
+                            intervals.forEach(interval => {
+                                if (day + interval <= daysInMonth + 45) addReview(day + interval, sub);
+                            });
+                        }
+                    });
+                }
+            });
+
+            // Se não houver logs, assumimos que o usuário não estudou.
+            schedule[day] = dailyItems.length > 0 ? dailyItems : [];
+            continue; 
+        }
+
+        // =================================================================================
+        // RAMIFICAÇÃO B: SIMULAR FUTURO (Baseado em ALGORITMO)
+        // =================================================================================
+        
         if (!isDayActive) {
             schedule[day] = null;
-            // Empurra revisões pendentes para o próximo dia
             if (pendingReviews[day]) {
                 const nextDay = day + 1;
                 if (!pendingReviews[nextDay]) pendingReviews[nextDay] = [];
@@ -129,15 +172,14 @@ export const generateMonthlySchedule = (
             continue;
         }
 
-        // 5.1. Processar Revisões
+        // 1. Processar Revisões Pendentes (Geradas por Logs Passados ou Teoria Simulada Anterior)
         if (pendingReviews[day]) {
             pendingReviews[day].forEach(revSub => {
-                // Verifica se a matéria ainda está ativa (pode ter sido arquivada durante o mês teoricamente, mas aqui usamos o snapshot inicial)
                 dailyItems.push({ subject: revSub, type: 'REVIEW' });
             });
         }
 
-        // 5.2. Preencher com Teoria
+        // 2. Preencher Vagas com Teoria (Simulação)
         let slotsForTheory = settings.subjectsPerDay - dailyItems.length;
         if (slotsForTheory < 0) slotsForTheory = 0;
 
@@ -146,25 +188,26 @@ export const generateMonthlySchedule = (
             if (!selectedSubject) break;
 
             const idx = subjectTopicCursors[selectedSubject.id];
+            
             if (selectedSubject.topics && idx < selectedSubject.topics.length) {
                 const topic = selectedSubject.topics[idx];
+                
+                // Avança o cursor simulado
                 subjectTopicCursors[selectedSubject.id] = idx + 1;
 
                 dailyItems.push({ subject: selectedSubject, type: 'THEORY', topic: topic });
 
-                // Agendar SRS
+                // Agenda revisões futuras
                 const intervals = getReviewIntervals(selectedSubject);
                 intervals.forEach(interval => {
-                    // Limite de overflow para não explodir memória
                     if (day + interval <= daysInMonth + 30) addReview(day + interval, selectedSubject);
                 });
             } else {
-                // Matéria finalizada ou sem tópicos - Estudo Geral
                 dailyItems.push({ subject: selectedSubject, type: 'THEORY' }); 
             }
         }
 
-        // 5.3. Distribuir Tempo
+        // 3. Distribuir Tempo
         if (dailyItems.length > 0) {
             const totalWeight = dailyItems.reduce((acc, item) => acc + (item.type === 'REVIEW' ? 1 : 2), 0);
             dailyItems.forEach(item => {
