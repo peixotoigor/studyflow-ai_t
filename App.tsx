@@ -576,7 +576,8 @@ function App() {
   const handleToggleSubjectStatus = (id: string) => setSubjects(prev => prev.map(s => s.id === id ? { ...s, active: !s.active } : s));
   
   // --- SMART COLOR SELECTION LOGIC ---
-  const handleAddManualSubject = (name: string, weight: number = 1, manualColor?: string) => {
+  // Atualizada para aceitar peso e cor opcionais
+  const handleAddManualSubject = (name: string, weight?: number, manualColor?: string) => {
       if (name?.trim()) {
           // Lógica de Cor: Se manualColor for passado, usa ele. Senão, usa lógica smart.
           let nextColor = manualColor;
@@ -599,7 +600,7 @@ function App() {
               name, 
               active: true, 
               color: nextColor || 'blue', 
-              weight: weight, // Adicionado Peso
+              weight: weight, // Agora persiste o peso (undefined se não passado)
               topics: [], 
               priority: 'MEDIUM', 
               proficiency: 'INTERMEDIATE', 

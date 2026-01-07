@@ -7,7 +7,7 @@ interface SubjectManagerProps {
     plans?: StudyPlan[]; // Para selecionar plano de origem
     onImportFromPlan?: (sourcePlanId: string, subjectIdsToCopy: string[]) => void;
     onDeleteSubject?: (id: string) => void;
-    onAddSubject?: (name: string, weight: number, color?: string) => void;
+    onAddSubject?: (name: string, weight?: number, color?: string) => void;
     onToggleStatus?: (id: string) => void;
     onAddTopic?: (subjectId: string, name: string) => void;
     onRemoveTopic?: (subjectId: string, topicId: string) => void;
@@ -62,6 +62,7 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     const [isCreatingSubject, setIsCreatingSubject] = useState(false);
     const [newSubjectName, setNewSubjectName] = useState('');
     const [newSubjectWeight, setNewSubjectWeight] = useState<number>(1);
+    const [hasCustomWeight, setHasCustomWeight] = useState(false); // Flag para peso opcional
     const [newSubjectColor, setNewSubjectColor] = useState<string>('');
 
     // States for IMPORT FROM PLAN Modal
@@ -94,7 +95,6 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
         } catch(e) {}
 
         if (subjects.length > 0 && expandedSubjectId === null && !hasSaved) {
-            // Em modo Grid, não selecionamos nada automaticamente para não quebrar a view
             setExpandedSubjectId(null);
         }
     }, [subjects.length]);
@@ -125,7 +125,7 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     }, [editingTopicId]);
 
     const toggleExpand = (id: string) => {
-        setExpandedSubjectId(expandedSubjectId === id ? null : id);
+        setExpandedSubjectId(prev => prev === id ? null : id);
         setNewTopicInput(''); 
         setEditingTopicId(null); 
         setActiveTab('TOPICS');
@@ -146,9 +146,15 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
 
     const handleCreateSubjectSubmit = () => {
         if (newSubjectName.trim() && onAddSubject) {
-            onAddSubject(newSubjectName, newSubjectWeight, newSubjectColor);
+            // Se o usuário não ativou o peso, mandamos undefined ou 1, o App.tsx trata.
+            // Aqui decidimos mandar undefined se não for customizado para que a lógica padrão do App ou backend decida.
+            const weightToSend = hasCustomWeight ? newSubjectWeight : undefined;
+            onAddSubject(newSubjectName, weightToSend, newSubjectColor);
+            
+            // Reset
             setNewSubjectName('');
             setNewSubjectWeight(1);
+            setHasCustomWeight(false);
             setNewSubjectColor('');
             setIsCreatingSubject(false);
         }
@@ -349,7 +355,11 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                             <div className="flex flex-col gap-1">
                                 <h3 className="text-2xl font-bold text-text-primary-light dark:text-text-primary-dark flex items-center gap-2">
                                     {subject.name}
-                                    {subject.weight && <span className="text-xs bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 font-bold text-slate-500">Peso {subject.weight}</span>}
+                                    {subject.weight !== undefined && (
+                                        <span className="text-xs bg-slate-100 dark:bg-slate-800 px-2 py-0.5 rounded border border-slate-200 dark:border-slate-700 font-bold text-slate-500">
+                                            Peso {subject.weight}
+                                        </span>
+                                    )}
                                 </h3>
                                 <p className="text-sm text-text-secondary-light dark:text-text-secondary-dark">{subject.topics.length} tópicos cadastrados</p>
                             </div>
@@ -487,7 +497,8 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                                                     <div className={`size-10 rounded-lg flex items-center justify-center ${subjectBgClass} ${subjectColorClass}`}>
                                                         <span className="material-symbols-outlined fill text-xl">{getSubjectIcon(subject.name)}</span>
                                                     </div>
-                                                    {subject.weight && subject.weight > 1 && (
+                                                    {/* Mostra o peso se ele existir e for diferente de 1, OU se existir (decisão de design: mostrar sempre que for diferente de 1 para evitar poluição visual, mas se o usuário setar 1 explicitamente, ele pode querer ver? Vamos mostrar se definido.) */}
+                                                    {subject.weight !== undefined && (
                                                         <span className="text-[10px] font-black uppercase bg-slate-100 dark:bg-slate-800 text-slate-500 border border-slate-200 dark:border-slate-700 px-1.5 py-0.5 rounded">
                                                             Peso {subject.weight}
                                                         </span>
@@ -543,20 +554,34 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                                 />
                             </div>
 
-                            <div className="flex flex-col gap-1.5">
-                                <label className="text-xs font-bold uppercase text-slate-500">Peso no Edital</label>
-                                <div className="flex items-center gap-2">
-                                    <input 
-                                        type="range" 
-                                        min="1" 
-                                        max="5" 
-                                        step="0.5" 
-                                        value={newSubjectWeight} 
-                                        onChange={(e) => setNewSubjectWeight(parseFloat(e.target.value))} 
-                                        className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 accent-primary" 
-                                    />
-                                    <span className="w-12 text-center font-bold text-primary bg-primary/10 rounded px-1">{newSubjectWeight}x</span>
+                            <div className="flex flex-col gap-2">
+                                <div className="flex items-center justify-between">
+                                    <label className="text-xs font-bold uppercase text-slate-500">Peso no Edital</label>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-[10px] text-gray-400">{hasCustomWeight ? 'Ativado' : 'Padrão'}</span>
+                                        <div 
+                                            onClick={() => setHasCustomWeight(!hasCustomWeight)}
+                                            className={`w-8 h-4 rounded-full p-0.5 cursor-pointer transition-colors ${hasCustomWeight ? 'bg-primary' : 'bg-gray-300 dark:bg-gray-600'}`}
+                                        >
+                                            <div className={`w-3 h-3 bg-white rounded-full shadow-sm transform transition-transform ${hasCustomWeight ? 'translate-x-4' : 'translate-x-0'}`}></div>
+                                        </div>
+                                    </div>
                                 </div>
+                                
+                                {hasCustomWeight && (
+                                    <div className="flex items-center gap-2 animate-in fade-in slide-in-from-top-1">
+                                        <input 
+                                            type="range" 
+                                            min="0.5" 
+                                            max="5" 
+                                            step="0.5" 
+                                            value={newSubjectWeight} 
+                                            onChange={(e) => setNewSubjectWeight(parseFloat(e.target.value))} 
+                                            className="flex-1 h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer dark:bg-gray-700 accent-primary" 
+                                        />
+                                        <span className="w-12 text-center font-bold text-primary bg-primary/10 rounded px-1">{newSubjectWeight}x</span>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="flex flex-col gap-1.5">
