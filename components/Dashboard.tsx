@@ -134,7 +134,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
     };
 
     // =================================================================================
-    // ESTADO ZERO (RECUPERAÇÃO) - MANTIDO
+    // ESTADO ZERO (RECUPERAÇÃO)
     // =================================================================================
     if (subjects.length === 0) {
         return (
@@ -325,8 +325,6 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
 
     // COMPONENTE: GRÁFICO CIRCULAR DE TEMPO POR DISCIPLINA
     const SubjectTimeChart = () => {
-        if (totalStudyMinutes === 0) return null;
-
         // Filtra disciplinas com tempo > 0 e ordena
         const chartData = performanceBySubject
             .filter(s => s.minutes > 0)
@@ -348,14 +346,15 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                 
                 <div className="relative size-40 group">
                     <svg viewBox={`0 0 ${size} ${size}`} className="size-full -rotate-90 transform">
+                        {/* Background Ring */}
+                        <circle cx={center} cy={center} r={radius} fill="transparent" stroke="currentColor" strokeWidth="20" className="text-slate-100 dark:text-slate-800" />
+                        
                         {chartData.map((sub, i) => {
                             const percent = sub.minutes / totalStudyMinutes;
                             const dashArray = `${percent * circumference} ${circumference}`;
                             const offset = -cumulativePercent * circumference;
                             cumulativePercent += percent;
                             
-                            // Map Colors to Hex/Tailwind vars explicitly for SVG stroke
-                            // Fallback to blue if color not found in map
                             const colorMap: Record<string, string> = {
                                 blue: '#3b82f6', red: '#ef4444', green: '#22c55e', purple: '#a855f7',
                                 orange: '#f97316', teal: '#14b8a6', pink: '#ec4899', indigo: '#6366f1',
@@ -390,22 +389,26 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                 </div>
 
                 {/* Legenda */}
-                <div className="w-full mt-6 flex flex-col gap-2 max-h-[200px] overflow-y-auto custom-scrollbar pr-2">
-                    {chartData.map(sub => (
-                        <div 
-                            key={sub.id} 
-                            className={`flex justify-between items-center text-xs p-2 rounded-lg transition-colors ${hoveredSlice === sub.id ? 'bg-slate-100 dark:bg-slate-800' : ''}`}
-                            onMouseEnter={() => setHoveredSlice(sub.id)}
-                            onMouseLeave={() => setHoveredSlice(null)}
-                        >
-                            <div className="flex items-center gap-2 overflow-hidden">
-                                <div className={`size-2.5 rounded-full bg-${sub.color}-500 shrink-0`}></div>
-                                <span className="font-bold text-slate-700 dark:text-slate-300 truncate">{sub.name}</span>
+                {chartData.length > 0 ? (
+                    <div className="w-full mt-6 flex flex-col gap-2 max-h-[200px] overflow-y-auto custom-scrollbar pr-2">
+                        {chartData.map(sub => (
+                            <div 
+                                key={sub.id} 
+                                className={`flex justify-between items-center text-xs p-2 rounded-lg transition-colors ${hoveredSlice === sub.id ? 'bg-slate-100 dark:bg-slate-800' : ''}`}
+                                onMouseEnter={() => setHoveredSlice(sub.id)}
+                                onMouseLeave={() => setHoveredSlice(null)}
+                            >
+                                <div className="flex items-center gap-2 overflow-hidden">
+                                    <div className={`size-2.5 rounded-full bg-${sub.color}-500 shrink-0`}></div>
+                                    <span className="font-bold text-slate-700 dark:text-slate-300 truncate">{sub.name}</span>
+                                </div>
+                                <span className="font-mono text-slate-500">{sub.minutes}m ({Math.round((sub.minutes/totalStudyMinutes)*100)}%)</span>
                             </div>
-                            <span className="font-mono text-slate-500">{sub.minutes}m ({Math.round((sub.minutes/totalStudyMinutes)*100)}%)</span>
-                        </div>
-                    ))}
-                </div>
+                        ))}
+                    </div>
+                ) : (
+                    <p className="text-xs text-slate-400 mt-4 text-center">Nenhum dado registrado.</p>
+                )}
             </div>
         );
     };
@@ -556,7 +559,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                         </div>
                     </div>
 
-                    {/* Novo Gráfico Circular */}
+                    {/* Novo Gráfico Circular (Posicionado explicitamente aqui) */}
                     <SubjectTimeChart />
                 </div>
 
@@ -600,6 +603,12 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                                         const completedCount = groups.reduce((acc, g) => acc + g.children.filter(c => c.status !== 'NOT_SEEN').length, 0);
                                         const progressPct = totalTopics > 0 ? Math.round((completedCount / totalTopics) * 100) : 0;
 
+                                        // Métricas Agregadas do Subject para o Cabeçalho
+                                        const subjectTotalMinutes = subject.logs?.reduce((acc, log) => acc + log.durationMinutes, 0) || 0;
+                                        const subjectTotalQuestions = subject.logs?.reduce((acc, log) => acc + log.questionsCount, 0) || 0;
+                                        const subjectTotalCorrect = subject.logs?.reduce((acc, log) => acc + log.correctCount, 0) || 0;
+                                        const subjectAccuracy = subjectTotalQuestions > 0 ? Math.round((subjectTotalCorrect / subjectTotalQuestions) * 100) : 0;
+
                                         return (
                                             <div key={subject.id} className="border border-slate-200 dark:border-slate-800 rounded-lg overflow-hidden transition-all">
                                                 {/* Subject Header */}
@@ -613,11 +622,28 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                                                         </div>
                                                         <div className="flex flex-col items-start">
                                                             <span className="font-bold text-sm text-slate-900 dark:text-white">{subject.name}</span>
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="w-24 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
-                                                                    <div className={`h-full bg-${subject.color || 'blue'}-500`} style={{ width: `${progressPct}%` }}></div>
+                                                            <div className="flex items-center gap-3 mt-0.5">
+                                                                {/* Progresso */}
+                                                                <div className="flex items-center gap-1.5">
+                                                                    <div className="w-16 h-1.5 bg-slate-200 dark:bg-slate-700 rounded-full overflow-hidden">
+                                                                        <div className={`h-full bg-${subject.color || 'blue'}-500`} style={{ width: `${progressPct}%` }}></div>
+                                                                    </div>
+                                                                    <span className="text-[9px] text-slate-500">{progressPct}%</span>
                                                                 </div>
-                                                                <span className="text-[10px] text-slate-500">{progressPct}% Visto</span>
+                                                                
+                                                                {/* Métricas Agregadas no Header */}
+                                                                {subjectTotalMinutes > 0 && (
+                                                                    <div className="flex items-center gap-1 text-[9px] font-mono text-slate-400 border-l border-slate-200 dark:border-slate-700 pl-2">
+                                                                        <span className="material-symbols-outlined text-[10px]">schedule</span>
+                                                                        {subjectTotalMinutes}m
+                                                                    </div>
+                                                                )}
+                                                                {subjectTotalQuestions > 0 && (
+                                                                    <div className={`flex items-center gap-1 text-[9px] font-bold ${subjectAccuracy >= 80 ? 'text-green-500' : subjectAccuracy >= 60 ? 'text-yellow-500' : 'text-red-500'}`}>
+                                                                        <span className="material-symbols-outlined text-[10px]">target</span>
+                                                                        {subjectAccuracy}%
+                                                                    </div>
+                                                                )}
                                                             </div>
                                                         </div>
                                                     </div>
