@@ -278,58 +278,63 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
         setIsAiProcessing(true);
 
         try {
-            // PROMPT ATUALIZADO: Foco em hierarquia de 2º nível e literalidade absoluta
+            // PROMPT ATUALIZADO: Lógica de Decisão Automática (Etapas 0, 1, 2) com saída JSON
             const prompt = `
                 Papel:
-                Atue como um especialista em análise técnica de editais de concursos públicos, com experiência em estruturação hierárquica de conteúdos programáticos.
+                Atue como um especialista em análise técnica de editais de concursos públicos, com experiência em extração normativa fiel e estruturação hierárquica automatizada de conteúdos programáticos.
 
                 Objetivo:
-                Extrair integralmente o conteúdo programático do edital fornecido, de forma literal, fiel e estruturalmente correta, garantindo que a hierarquia numérica seja respeitada sem fragmentação indevida.
+                Analisar o texto do edital fornecido e decidir automaticamente quais etapas de processamento devem ser aplicadas, garantindo:
+                - fidelidade absoluta ao edital,
+                - estrutura hierárquica correta,
+                - geração de dados úteis para indexação e sistemas de estudo.
 
-                Regras obrigatórias de extração (críticas):
+                ETAPA 0 – ANÁLISE ESTRUTURAL (DECISÃO AUTOMÁTICA)
+                Antes de qualquer extração, analise o texto e classifique-o segundo os critérios abaixo:
 
-                1. Extração literal:
-                   - Não resuma, não interprete e não reescreva o texto.
-                   - Preserve integralmente a redação, termos, grafia, ordem e pontuação do edital.
+                Classificação do texto:
+                1. Texto hierárquico numerado: Possui numeração explícita (1., 1.1, 1.1.1, etc.).
+                2. Texto semi-estruturado: Possui títulos ou rótulos (ex.: “Raciocínio Lógico-Matemático:”), mas sem numeração interna.
+                3. Texto corrido: Não possui títulos claros nem numeração.
 
-                2. Regra de hierarquia e agrupamento (fundamental):
-                   - Considere que o tópico efetivo é definido até o SEGUNDO nível de numeração.
-                   - Todos os itens que compartilham o mesmo prefixo numérico até o segundo nível pertencem ao mesmo tópico.
-                   
-                   Exemplos obrigatórios:
-                   - 7.1, 7.1.1, 7.1.2, 7.1.3 -> devem formar um único tópico (7.1 e seus filhos juntos).
-                   - 7.2, 7.2.1, 7.2.2 -> novo tópico (7.2 e seus filhos).
-                   - Mudança de 7.1.* para 7.2.* obriga a criação de um novo tópico na lista.
+                ETAPA 1 – EXTRAÇÃO OFICIAL (EXECUÇÃO CONDICIONAL)
+                Regras gerais (sempre aplicáveis):
+                - Preserve integralmente a redação, grafia, ordem e pontuação.
+                - Não resuma, não interprete e não reescreva o texto.
 
-                3. Nível de quebra de tópicos:
-                   Um novo item só pode ser iniciado quando houver:
-                   - mudança no número de primeiro nível (ex: de 6. para 7.), ou
-                   - mudança no número de segundo nível (ex: de 7.1 para 7.2).
+                Lógica de decisão:
+                - Se o texto for classificado como “Texto hierárquico numerado”:
+                  Aplique rigorosamente a regra de agrupamento até o segundo nível:
+                  x.y.* pertence ao tópico x.y.
+                  Mudança de x.y para x.z cria novo tópico.
+                
+                - Se o texto for classificado como “Texto semi-estruturado” ou “Texto corrido”:
+                  Não crie subtópicos.
+                  Trate cada título ou bloco como um único tópico indivisível.
 
-                4. Subníveis inferiores:
-                   - Numerações a partir do terceiro nível (7.1.1, 7.1.2, etc.) JAMAIS devem gerar novos itens na lista de saída.
-                   - Esses itens devem permanecer "inline", agregados ao texto do tópico pai (7.1).
+                ETAPA 2 – SEGMENTAÇÃO DERIVADA (EXECUÇÃO CONDICIONAL)
+                A segmentação derivada só deve ser executada se:
+                - o texto não possuir numeração interna ou
+                - o texto possuir blocos extensos (mais de um período separado por ponto final).
 
-                5. Proibições explícitas:
-                   - Não crie tópicos artificiais.
-                   - Não separe subtópicos em listas independentes.
-                   - Não altere a estrutura numérica original.
-                   - Não reorganize a ordem do conteúdo.
+                Regras da segmentação:
+                - Divida o texto exclusivamente a cada ponto final (.).
+                - Não utilize :, ; ou , como critério de separação.
+                - Não reescreva, não agrupe e não interprete os segmentos.
+                - Remova apenas espaços em branco excedentes.
 
-                6. Editais mal formatados:
-                   Caso a numeração esteja inconsistente (ex.: saltos, repetições, erros de OCR), assuma a intenção hierárquica mais provável, preservando o agrupamento lógico até o segundo nível.
+                SAÍDA OBRIGATÓRIA (JSON):
+                Execute as etapas acima mentalmente (Etapa 3 - Relatório de Decisão) e forneça o resultado final estruturado no formato JSON abaixo.
+                Se a Etapa 2 foi executada, os segmentos derivados devem ser os itens da lista.
+                Se apenas a Etapa 1 foi executada, os tópicos oficiais devem ser os itens da lista.
 
-                Formato de saída (JSON OBRIGATÓRIO):
                 {
                     "topics": [
-                        "1. Texto completo do nível 1...",
-                        "2.1 Texto completo do nível 2 (com subitens 2.1.1, 2.1.2 inclusos)...",
-                        "2.2 Texto completo do nível 2..."
+                        "Resultado do item 1 (conforme lógica aplicada)",
+                        "Resultado do item 2...",
+                        "Resultado do item 3..."
                     ]
                 }
-
-                Critério de validação:
-                A extração será considerada correta somente se nenhum conteúdo for perdido, nenhum tópico for fragmentado abaixo do segundo nível e a estrutura for fiel.
 
                 Texto do edital a ser analisado:
                 ${rawSyllabusText}
