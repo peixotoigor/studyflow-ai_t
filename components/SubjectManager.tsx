@@ -67,7 +67,8 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     const [newSubjectWeight, setNewSubjectWeight] = useState<number>(1);
     const [hasCustomWeight, setHasCustomWeight] = useState(false);
     const [newSubjectColor, setNewSubjectColor] = useState<string>('');
-    const [creationSyllabusText, setCreationSyllabusText] = useState(''); 
+    
+    // Removido: const [creationSyllabusText, setCreationSyllabusText] = useState(''); 
 
     // States for EDIT Subject Modal
     const [editingSubjectData, setEditingSubjectData] = useState<Subject | null>(null);
@@ -212,13 +213,11 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
     const handleCreateSubjectSubmit = async () => {
         if (newSubjectName.trim() && onAddSubject) {
             onAddSubject(newSubjectName, hasCustomWeight ? newSubjectWeight : undefined, newSubjectColor);
-            if (creationSyllabusText.trim()) setTimeout(() => alert("Disciplina criada! Use a varinha mágica para processar o texto colado."), 500);
             
             setNewSubjectName('');
             setNewSubjectWeight(1);
             setHasCustomWeight(false);
             setNewSubjectColor('');
-            setCreationSyllabusText('');
             setIsCreatingSubject(false);
         }
     };
@@ -435,7 +434,6 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                             </div>
                         </div>
                         <div className="flex items-center gap-2">
-                            <button onClick={(e) => openAiModalForSubject(e, subject.id)} className="px-3 py-1.5 text-xs font-medium bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 hover:bg-purple-100 rounded-md flex items-center gap-1 transition-colors"><span className="material-symbols-outlined text-[16px]">auto_fix</span> IA</button>
                             <button onClick={(e) => openEditSubjectModal(e, subject)} className="px-3 py-1.5 text-xs font-medium bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 hover:bg-blue-100 rounded-md flex items-center gap-1 transition-colors"><span className="material-symbols-outlined text-[16px]">edit</span> Editar</button>
                             <button onClick={() => toggleExpand(subject.id)} className="px-4 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 rounded-lg text-sm font-bold flex items-center gap-2 transition-colors"><span className="material-symbols-outlined text-[18px]">grid_view</span> Voltar</button>
                         </div>
@@ -477,9 +475,18 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                                     </div>
                                 ))}
                             </div>
+                            
+                            {/* Input com botão IA incorporado */}
                             <div className="flex gap-2 mt-4 bg-white dark:bg-card-dark p-3 rounded-xl shadow-sm border border-slate-200 dark:border-slate-800">
-                                <input type="text" value={newTopicInput} onChange={(e) => setNewTopicInput(e.target.value)} onKeyDown={(e) => handleTopicKeyDown(e, subject.id)} placeholder="Adicionar novo tópico..." className="flex-1 bg-transparent border-none focus:ring-0 text-sm outline-none px-2" />
-                                <button onClick={() => handleAddTopicSubmit(subject.id)} disabled={!newTopicInput.trim()} className="bg-primary text-white size-8 rounded-lg flex items-center justify-center hover:bg-blue-600 disabled:opacity-50"><span className="material-symbols-outlined text-[20px]">add</span></button>
+                                <button 
+                                    onClick={(e) => openAiModalForSubject(e, subject.id)} 
+                                    className="bg-purple-100 dark:bg-purple-900/30 text-purple-600 dark:text-purple-400 size-10 rounded-lg flex items-center justify-center hover:bg-purple-200 dark:hover:bg-purple-800/50 transition-colors shrink-0"
+                                    title="Adicionar via IA (Colar Edital)"
+                                >
+                                    <span className="material-symbols-outlined text-[20px]">auto_fix</span>
+                                </button>
+                                <input type="text" value={newTopicInput} onChange={(e) => setNewTopicInput(e.target.value)} onKeyDown={(e) => handleTopicKeyDown(e, subject.id)} placeholder="Adicionar novo tópico manualmente..." className="flex-1 bg-transparent border-none focus:ring-0 text-sm outline-none px-2" />
+                                <button onClick={() => handleAddTopicSubmit(subject.id)} disabled={!newTopicInput.trim()} className="bg-primary text-white size-10 rounded-lg flex items-center justify-center hover:bg-blue-600 disabled:opacity-50 shrink-0"><span className="material-symbols-outlined text-[20px]">add</span></button>
                             </div>
                         </div>
                     )}
@@ -660,14 +667,10 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                                 <label className="text-xs font-bold uppercase text-slate-500">Cor</label>
                                 <div className="flex flex-wrap gap-2">{AVAILABLE_COLORS.map(c => (<button key={c} onClick={() => setNewSubjectColor(newSubjectColor === c ? '' : c)} className={`size-6 rounded-full bg-${c}-500 transition-all ${newSubjectColor === c ? 'ring-2 ring-offset-2 ring-primary dark:ring-offset-gray-900 scale-110' : 'hover:scale-110 opacity-70 hover:opacity-100'}`} />))}</div>
                             </div>
-                            <div className="mt-2 pt-4 border-t border-slate-100 dark:border-slate-800">
-                                <label className="text-xs font-bold uppercase text-purple-600 dark:text-purple-400 flex items-center gap-1 mb-2"><span className="material-symbols-outlined text-sm">auto_fix</span> Estrutura de Tópicos (IA)</label>
-                                <textarea value={creationSyllabusText} onChange={(e) => setCreationSyllabusText(e.target.value)} placeholder="Cole aqui o conteúdo do edital..." className="w-full h-24 p-3 rounded-lg bg-purple-50/50 dark:bg-purple-900/10 border border-purple-200 dark:border-purple-800/30 text-xs focus:ring-2 focus:ring-purple-500/50 outline-none resize-none" />
-                            </div>
                         </div>
                         <div className="flex justify-end gap-2 mt-6 pt-4 border-t border-slate-100 dark:border-slate-800">
                             <button onClick={() => setIsCreatingSubject(false)} className="px-4 py-2 rounded text-gray-500 hover:bg-gray-100 dark:hover:bg-gray-800 text-sm font-bold">Cancelar</button>
-                            <button onClick={handleCreateSubjectSubmit} disabled={!newSubjectName.trim()} className="px-6 py-2 bg-primary text-white rounded-lg text-sm font-bold hover:bg-blue-600 disabled:opacity-50 shadow-lg shadow-primary/20">{creationSyllabusText.trim() ? 'Criar & Processar IA' : 'Criar'}</button>
+                            <button onClick={handleCreateSubjectSubmit} disabled={!newSubjectName.trim()} className="px-6 py-2 bg-primary text-white rounded-lg text-sm font-bold hover:bg-blue-600 disabled:opacity-50 shadow-lg shadow-primary/20">Criar</button>
                         </div>
                     </div>
                 </div>
