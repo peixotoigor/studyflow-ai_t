@@ -278,28 +278,33 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
         setIsAiProcessing(true);
 
         try {
-            // PROMPT ESPECÍFICO PARA EXTRAÇÃO LITERAL E ROBUSTA DE TÓPICOS NUMERADOS
+            // PROMPT ATUALIZADO PARA CORREÇÃO LITERAL DE TÓPICOS NUMERADOS
             const prompt = `
-                Sua ÚNICA função é atuar como um parser de texto LITERAL. Você deve extrair a lista de tópicos respeitando estritamente a numeração original do edital.
+                Sua ÚNICA função é atuar como um parser de texto LITERAL. 
+                
+                REGRAS ABSOLUTAS (OBRIGATÓRIO):
+                1. MANTENHA A LITERALIDADE EM LISTAS NUMERADAS:
+                   Se o texto contiver itens numerados (1., 2., 3., ... ou I, II, III...), você deve capturar TODO o texto associado a aquele número como UM ÚNICO TÓPICO.
+                
+                2. PROIBIDO QUEBRAR POR PONTUAÇÃO INTERNA:
+                   Nunca separe um item numerado por vírgulas, ponto e vírgula ou pontos. O bloco inteiro pertence àquele número.
+                
+                3. PROIBIDO INFERIR SUBTÓPICOS:
+                   Não tente melhorar a didática. Mantenha o texto bruto junto com seu número.
 
-                REGRAS ABSOLUTAS (NÃO QUEBRE NENHUMA):
-                1. MANTENHA A LITERALIDADE: Se um item começa com um número (1., 2., 3., ...), capture TODO o texto associado a ele como UMA ÚNICA STRING até o próximo número ou fim do texto.
-                2. PROIBIDO FRAGMENTAR POR PONTUAÇÃO: NUNCA separe um tópico numerado por vírgulas, ponto e vírgula ou traços. O item numerado é um bloco atômico.
-                3. PROIBIDO INFERIR SUBTÓPICOS: Não tente "melhorar" a didática separando conceitos. Mantenha o bloco de texto bruto junto com seu número.
-                4. LISTAS NÃO NUMERADAS: Se o texto NÃO tiver números, quebre por linhas (parágrafos), mas mantenha o texto agrupado logicamente.
+                4. LISTAS NÃO NUMERADAS:
+                   Apenas se o texto NÃO tiver numeração, quebre por linhas lógicas.
 
-                EXEMPLO DE CORREÇÃO:
-                Entrada: 
-                "1. Contabilidade. Conceito, objeto, campo de atuação e usuários.
-                2. Princípios e Normas Brasileiras."
+                Exemplo de Entrada: 
+                "1. Contabilidade. Conceito, objeto, campo de atuação e usuários. 2. Princípios e Normas Brasileiras."
 
-                Saída CORRETA (Obrigatória):
+                Exemplo de Saída CORRETA (JSON):
                 { "topics": [
                     "1. Contabilidade. Conceito, objeto, campo de atuação e usuários.",
                     "2. Princípios e Normas Brasileiras."
                 ]}
 
-                Saída ERRADA (Proibida - Não faça isso):
+                Exemplo de Saída ERRADA (NUNCA FAÇA ISSO):
                 { "topics": ["1. Contabilidade", "Conceito", "objeto", "2. Princípios"] }
 
                 ENTRADA PARA PROCESSAR:
@@ -312,15 +317,19 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                 body: JSON.stringify({
                     model: model,
                     messages: [
-                        { role: "system", content: "Você é um extrator de texto cego e literal. Você ignora pontuação interna e preserva blocos numerados inteiros." }, 
+                        { role: "system", content: "You are a helpful assistant designed to output JSON." }, // Obrigatório ter 'JSON' na system message para json_object mode
                         { role: "user", content: prompt }
                     ],
                     response_format: { type: "json_object" },
-                    temperature: 0.0 // Temperatura zero para determinismo máximo
+                    temperature: 0.0 // Temperatura zero para precisão máxima
                 })
             });
 
-            if (!response.ok) throw new Error(`API Error: ${response.status}`);
+            if (!response.ok) {
+                const errorBody = await response.text();
+                throw new Error(`API Error: ${response.status} - ${errorBody}`);
+            }
+            
             const data = await response.json();
             const content = JSON.parse(data.choices[0].message.content);
 
@@ -329,7 +338,7 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                 setAiImportModalOpen(false);
                 setRawSyllabusText('');
                 alert(`${content.topics.length} tópicos adicionados com sucesso!`);
-            } else { throw new Error("JSON inválido."); }
+            } else { throw new Error("JSON inválido: propriedade 'topics' não encontrada."); }
         } catch (error: any) {
             console.error(error);
             alert(`Falha: ${error.message}`);
