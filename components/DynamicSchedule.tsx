@@ -166,18 +166,6 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
         const isReview = item.type === 'REVIEW';
         const color = sub.color || 'blue';
         
-        // Verifica se é um item "Realizado" (Log). 
-        // No Scheduler, itens passados são sempre logs. 
-        // No presente (Hoje), precisamos ver se o item é resultado de um log real.
-        // O scheduler agora usa Logs reais para o dia atual. O item terá metadados se vier do banco?
-        // Como o scheduler.ts unifica a estrutura, podemos inferir se "isToday" e tem log.
-        // Mas a UI do "checked" é a mais importante.
-        // O scheduler.ts não tem flag 'isLog', mas podemos inferir se topic.completed for true E topic.id for igual ao log.
-        
-        // Simplificação Visual: Se é passado, está feito. Se é hoje, assumimos que itens que aparecem na lista 'scheduleData'
-        // podem ser logs ou simulados. O scheduler coloca Logs PRIMEIRO.
-        // Vamos usar a flag 'isPast' para opacidade, mas adicionar um check visual se for um item CONCLUÍDO (mesmo hoje).
-        
         const isCompleted = isPast || (isToday && item.topic?.completed);
 
         const pastStyle = "bg-gray-100 dark:bg-gray-800 text-gray-500 border-gray-300 dark:border-gray-700 opacity-80";
@@ -641,7 +629,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
 
                     <div className="h-px bg-border-light dark:bg-border-dark w-full my-2"></div>
 
-                    {/* Lista de Configuração Individual (COM ACCORDION) */}
+                    {/* Lista de Configuração Individual (COM ACCORDION) - CORREÇÃO DE SCROLL AQUI */}
                     <div className="flex flex-col gap-3">
                          <div className="flex items-center justify-between">
                             <label className="text-xs font-bold uppercase text-text-secondary-light dark:text-text-secondary-dark">Configuração Individual</label>
@@ -650,7 +638,7 @@ export const DynamicSchedule: React.FC<DynamicScheduleProps> = ({ subjects, onUp
                             </span>
                          </div>
                          
-                         <div className="flex flex-col gap-2 max-h-[600px] overflow-y-auto pr-1 custom-scrollbar">
+                         <div className="flex flex-col gap-2">
                              {activeSubjects.map(subject => {
                                  const isSelected = selectedSubjectIds.has(subject.id);
                                  const isExpanded = expandedConfigId === subject.id;
