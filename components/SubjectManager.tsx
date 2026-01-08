@@ -278,47 +278,58 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
         setIsAiProcessing(true);
 
         try {
-            // PROMPT RIGOROSO PARA EXTRAÇÃO LITERAL DE EDITAL
+            // PROMPT ATUALIZADO: Foco em hierarquia de 2º nível e literalidade absoluta
             const prompt = `
                 Papel:
-                Atue como um especialista em análise de editais de concursos públicos, com foco em extração estruturada e fiel do conteúdo programático.
+                Atue como um especialista em análise técnica de editais de concursos públicos, com experiência em estruturação hierárquica de conteúdos programáticos.
 
                 Objetivo:
-                Extrair integralmente o conteúdo programático do edital fornecido, mantendo máxima fidelidade textual e estrutural ao documento original.
+                Extrair integralmente o conteúdo programático do edital fornecido, de forma literal, fiel e estruturalmente correta, garantindo que a hierarquia numérica seja respeitada sem fragmentação indevida.
 
-                Regras obrigatórias de extração:
+                Regras obrigatórias de extração (críticas):
 
-                1. Não reescreva, resuma ou interprete o conteúdo. A extração deve ser literal, preservando a redação original do edital.
+                1. Extração literal:
+                   - Não resuma, não interprete e não reescreva o texto.
+                   - Preserve integralmente a redação, termos, grafia, ordem e pontuação do edital.
 
-                2. Preserve rigorosamente a numeração e a hierarquia (ex.: 1, 1.1, 1.1.1, etc.).
+                2. Regra de hierarquia e agrupamento (fundamental):
+                   - Considere que o tópico efetivo é definido até o SEGUNDO nível de numeração.
+                   - Todos os itens que compartilham o mesmo prefixo numérico até o segundo nível pertencem ao mesmo tópico.
+                   
+                   Exemplos obrigatórios:
+                   - 7.1, 7.1.1, 7.1.2, 7.1.3 -> devem formar um único tópico (7.1 e seus filhos juntos).
+                   - 7.2, 7.2.1, 7.2.2 -> novo tópico (7.2 e seus filhos).
+                   - Mudança de 7.1.* para 7.2.* obriga a criação de um novo tópico na lista.
 
-                3. Quando um tópico principal possuir subtópicos enumerados, mantenha todos os subtópicos agregados ao mesmo tópico principal, sem separá-los em itens independentes.
+                3. Nível de quebra de tópicos:
+                   Um novo item só pode ser iniciado quando houver:
+                   - mudança no número de primeiro nível (ex: de 6. para 7.), ou
+                   - mudança no número de segundo nível (ex: de 7.1 para 7.2).
 
-                Exemplo correto:
-                "1. Jurisdição Aduaneira. 1.1 Território Aduaneiro. 1.2 Portos, Aeroportos e Pontos de Fronteira Alfandegados. 1.2.1 Alfandegamento. ..."
+                4. Subníveis inferiores:
+                   - Numerações a partir do terceiro nível (7.1.1, 7.1.2, etc.) JAMAIS devem gerar novos itens na lista de saída.
+                   - Esses itens devem permanecer "inline", agregados ao texto do tópico pai (7.1).
 
-                Exemplo incorreto:
-                Separar 1.1, 1.2, 1.3 como tópicos autônomos.
+                5. Proibições explícitas:
+                   - Não crie tópicos artificiais.
+                   - Não separe subtópicos em listas independentes.
+                   - Não altere a estrutura numérica original.
+                   - Não reorganize a ordem do conteúdo.
 
-                4. Somente inicie um novo item quando houver mudança clara de numeração de primeiro nível (ex.: de 1. para 2.).
-
-                5. Não crie subdivisões que não existam no edital.
-
-                6. Não altere a ordem dos tópicos.
-
-                7. Não normalize termos, não corrija grafia e não padronize linguagem — mantenha exatamente como está no edital.
+                6. Editais mal formatados:
+                   Caso a numeração esteja inconsistente (ex.: saltos, repetições, erros de OCR), assuma a intenção hierárquica mais provável, preservando o agrupamento lógico até o segundo nível.
 
                 Formato de saída (JSON OBRIGATÓRIO):
                 {
                     "topics": [
-                        "1. Texto completo do tópico 1 e seus subtópicos...",
-                        "2. Texto completo do tópico 2...",
-                        "..."
+                        "1. Texto completo do nível 1...",
+                        "2.1 Texto completo do nível 2 (com subitens 2.1.1, 2.1.2 inclusos)...",
+                        "2.2 Texto completo do nível 2..."
                     ]
                 }
 
-                Critério de qualidade:
-                A resposta será considerada correta apenas se um candidato puder estudar exclusivamente a partir do texto extraído sem risco de perda de conteúdo, fragmentação indevida ou distorção do edital.
+                Critério de validação:
+                A extração será considerada correta somente se nenhum conteúdo for perdido, nenhum tópico for fragmentado abaixo do segundo nível e a estrutura for fiel.
 
                 Texto do edital a ser analisado:
                 ${rawSyllabusText}
@@ -330,7 +341,7 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                 body: JSON.stringify({
                     model: model,
                     messages: [
-                        { role: "system", content: "You are a helpful assistant designed to output JSON." }, // Obrigatório ter 'JSON' na system message para json_object mode
+                        { role: "system", content: "You are a helpful assistant designed to output JSON." }, 
                         { role: "user", content: prompt }
                     ],
                     response_format: { type: "json_object" },
