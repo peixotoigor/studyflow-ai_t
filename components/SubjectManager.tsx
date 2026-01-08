@@ -278,15 +278,45 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
         setIsAiProcessing(true);
 
         try {
-            const prompt = `Converta este edital em tópicos JSON: { "topics": ["Tópico 1", "Tópico 2"] }. Mantenha a numeração original.`;
+            // PROMPT ESPECÍFICO PARA EXTRAÇÃO LITERAL E ROBUSTA DE TÓPICOS NUMERADOS
+            const prompt = `
+                Sua ÚNICA função é atuar como um parser de texto LITERAL. Você deve extrair a lista de tópicos respeitando estritamente a numeração original do edital.
+
+                REGRAS ABSOLUTAS (NÃO QUEBRE NENHUMA):
+                1. MANTENHA A LITERALIDADE: Se um item começa com um número (1., 2., 3., ...), capture TODO o texto associado a ele como UMA ÚNICA STRING até o próximo número ou fim do texto.
+                2. PROIBIDO FRAGMENTAR POR PONTUAÇÃO: NUNCA separe um tópico numerado por vírgulas, ponto e vírgula ou traços. O item numerado é um bloco atômico.
+                3. PROIBIDO INFERIR SUBTÓPICOS: Não tente "melhorar" a didática separando conceitos. Mantenha o bloco de texto bruto junto com seu número.
+                4. LISTAS NÃO NUMERADAS: Se o texto NÃO tiver números, quebre por linhas (parágrafos), mas mantenha o texto agrupado logicamente.
+
+                EXEMPLO DE CORREÇÃO:
+                Entrada: 
+                "1. Contabilidade. Conceito, objeto, campo de atuação e usuários.
+                2. Princípios e Normas Brasileiras."
+
+                Saída CORRETA (Obrigatória):
+                { "topics": [
+                    "1. Contabilidade. Conceito, objeto, campo de atuação e usuários.",
+                    "2. Princípios e Normas Brasileiras."
+                ]}
+
+                Saída ERRADA (Proibida - Não faça isso):
+                { "topics": ["1. Contabilidade", "Conceito", "objeto", "2. Princípios"] }
+
+                ENTRADA PARA PROCESSAR:
+                ${rawSyllabusText}
+            `;
+
             const response = await fetch('https://api.openai.com/v1/chat/completions', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${cleanApiKey}` },
                 body: JSON.stringify({
                     model: model,
-                    messages: [{ role: "system", content: "Extractor JSON." }, { role: "user", content: prompt + "\n\n" + rawSyllabusText }],
+                    messages: [
+                        { role: "system", content: "Você é um extrator de texto cego e literal. Você ignora pontuação interna e preserva blocos numerados inteiros." }, 
+                        { role: "user", content: prompt }
+                    ],
                     response_format: { type: "json_object" },
-                    temperature: 0.1
+                    temperature: 0.0 // Temperatura zero para determinismo máximo
                 })
             });
 
@@ -298,7 +328,7 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
                 content.topics.forEach((topicName: string) => onAddTopic(aiTargetSubjectId, topicName));
                 setAiImportModalOpen(false);
                 setRawSyllabusText('');
-                alert(`${content.topics.length} tópicos adicionados!`);
+                alert(`${content.topics.length} tópicos adicionados com sucesso!`);
             } else { throw new Error("JSON inválido."); }
         } catch (error: any) {
             console.error(error);
