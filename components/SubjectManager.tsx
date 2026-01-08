@@ -278,36 +278,49 @@ export const SubjectManager: React.FC<SubjectManagerProps> = ({
         setIsAiProcessing(true);
 
         try {
-            // PROMPT ATUALIZADO PARA CORREÇÃO LITERAL DE TÓPICOS NUMERADOS
+            // PROMPT RIGOROSO PARA EXTRAÇÃO LITERAL DE EDITAL
             const prompt = `
-                Sua ÚNICA função é atuar como um parser de texto LITERAL. 
-                
-                REGRAS ABSOLUTAS (OBRIGATÓRIO):
-                1. MANTENHA A LITERALIDADE EM LISTAS NUMERADAS:
-                   Se o texto contiver itens numerados (1., 2., 3., ... ou I, II, III...), você deve capturar TODO o texto associado a aquele número como UM ÚNICO TÓPICO.
-                
-                2. PROIBIDO QUEBRAR POR PONTUAÇÃO INTERNA:
-                   Nunca separe um item numerado por vírgulas, ponto e vírgula ou pontos. O bloco inteiro pertence àquele número.
-                
-                3. PROIBIDO INFERIR SUBTÓPICOS:
-                   Não tente melhorar a didática. Mantenha o texto bruto junto com seu número.
+                Papel:
+                Atue como um especialista em análise de editais de concursos públicos, com foco em extração estruturada e fiel do conteúdo programático.
 
-                4. LISTAS NÃO NUMERADAS:
-                   Apenas se o texto NÃO tiver numeração, quebre por linhas lógicas.
+                Objetivo:
+                Extrair integralmente o conteúdo programático do edital fornecido, mantendo máxima fidelidade textual e estrutural ao documento original.
 
-                Exemplo de Entrada: 
-                "1. Contabilidade. Conceito, objeto, campo de atuação e usuários. 2. Princípios e Normas Brasileiras."
+                Regras obrigatórias de extração:
 
-                Exemplo de Saída CORRETA (JSON):
-                { "topics": [
-                    "1. Contabilidade. Conceito, objeto, campo de atuação e usuários.",
-                    "2. Princípios e Normas Brasileiras."
-                ]}
+                1. Não reescreva, resuma ou interprete o conteúdo. A extração deve ser literal, preservando a redação original do edital.
 
-                Exemplo de Saída ERRADA (NUNCA FAÇA ISSO):
-                { "topics": ["1. Contabilidade", "Conceito", "objeto", "2. Princípios"] }
+                2. Preserve rigorosamente a numeração e a hierarquia (ex.: 1, 1.1, 1.1.1, etc.).
 
-                ENTRADA PARA PROCESSAR:
+                3. Quando um tópico principal possuir subtópicos enumerados, mantenha todos os subtópicos agregados ao mesmo tópico principal, sem separá-los em itens independentes.
+
+                Exemplo correto:
+                "1. Jurisdição Aduaneira. 1.1 Território Aduaneiro. 1.2 Portos, Aeroportos e Pontos de Fronteira Alfandegados. 1.2.1 Alfandegamento. ..."
+
+                Exemplo incorreto:
+                Separar 1.1, 1.2, 1.3 como tópicos autônomos.
+
+                4. Somente inicie um novo item quando houver mudança clara de numeração de primeiro nível (ex.: de 1. para 2.).
+
+                5. Não crie subdivisões que não existam no edital.
+
+                6. Não altere a ordem dos tópicos.
+
+                7. Não normalize termos, não corrija grafia e não padronize linguagem — mantenha exatamente como está no edital.
+
+                Formato de saída (JSON OBRIGATÓRIO):
+                {
+                    "topics": [
+                        "1. Texto completo do tópico 1 e seus subtópicos...",
+                        "2. Texto completo do tópico 2...",
+                        "..."
+                    ]
+                }
+
+                Critério de qualidade:
+                A resposta será considerada correta apenas se um candidato puder estudar exclusivamente a partir do texto extraído sem risco de perda de conteúdo, fragmentação indevida ou distorção do edital.
+
+                Texto do edital a ser analisado:
                 ${rawSyllabusText}
             `;
 
