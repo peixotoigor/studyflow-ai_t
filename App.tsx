@@ -12,6 +12,7 @@ import { SimulatedExams } from './components/SimulatedExams';
 import { SavedNotes } from './components/SavedNotes'; 
 import { ProfileModal } from './components/ProfileModal';
 import { BottomNavigation } from './components/BottomNavigation';
+import { EditalManager } from './components/EditalManager';
 import { Screen, UserProfile, Subject, Topic, ErrorLog, StudyLog, StudyPlan, SimulatedExam, SavedNote, StudyModality, ImporterState, EditalFile } from './types';
 
 // Dados iniciais vazios
@@ -835,6 +836,16 @@ function App() {
       case Screen.ERROR_NOTEBOOK: return <ErrorNotebook subjects={currentPlanSubjects} logs={currentPlanErrorLogs} onAddLog={handleAddErrorLog} onDeleteLog={handleDeleteErrorLog} />;
       case Screen.SIMULATED_EXAMS: return <SimulatedExams exams={currentPlanExams} onAddExam={handleAddSimulatedExam} onDeleteExam={handleDeleteSimulatedExam} />;
       case Screen.SAVED_NOTES: return <SavedNotes notes={savedNotes} onDeleteNote={handleDeleteSavedNote} />;
+            case Screen.EDITAL: return (
+                <EditalManager 
+                        files={currentPlanEditalFiles}
+                        onUpload={(file) => handleAddEditalFile({ ...file, planId: currentPlanId })}
+                        onRename={handleRenameEditalFile}
+                        onDelete={handleDeleteEditalFile}
+                        onUndoDelete={handleUndoDeleteEditalFile}
+                        lastRemoved={lastRemovedEdital}
+                />
+            );
       default: return <Dashboard onNavigate={setCurrentScreen} user={user} subjects={currentPlanSubjects} errorLogs={currentPlanErrorLogs} onManualRestore={handleManualGithubSync} />;
     }
   };

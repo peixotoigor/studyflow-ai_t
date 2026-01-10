@@ -74,6 +74,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
         { id: Screen.SAVED_NOTES, label: 'Insights IA', icon: 'lightbulb' }, 
         { id: Screen.SUBJECTS, label: 'Disciplinas', icon: 'menu_book' },
         { id: Screen.IMPORTER, label: 'Importador', icon: 'vertical_split' },
+        { id: Screen.EDITAL, label: 'Edital (PDF)', icon: 'description' },
     ];
 
     // Gera iniciais se não houver avatar
@@ -395,98 +396,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         </button>
                     </div>
 
-                    {/* Bloco de Edital */}
-                    <div ref={editalSectionRef} className="mt-2 p-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-card-dark shadow-sm flex flex-col gap-3" aria-label="Seção de edital e leitor de PDF">
-                        <div className="flex items-center justify-between gap-2">
-                            <div className="flex items-center gap-2">
-                                <span className="material-symbols-outlined text-primary text-[20px]">description</span>
-                                <div className="flex flex-col leading-tight">
-                                    <span className="text-sm font-bold text-slate-800 dark:text-white">Edital</span>
-                                    <span className="text-[11px] text-slate-500">Envie e visualize PDFs</span>
-                                </div>
-                            </div>
-                            <div className="flex items-center gap-2">
-                                <input ref={fileInputRef} type="file" accept="application/pdf" className="hidden" onChange={handleEditalFileChange} />
-                                <button 
-                                    onClick={() => fileInputRef.current?.click()}
-                                    className="p-2 rounded-lg bg-primary/10 text-primary hover:bg-primary/20 transition-colors disabled:opacity-50"
-                                    disabled={isUploadingEdital}
-                                    title="Enviar PDF do edital"
-                                >
-                                    <span className="material-symbols-outlined text-[18px]">upload_file</span>
-                                </button>
-                            </div>
-                        </div>
-
-                        {lastRemovedEdital && (
-                            <div className="flex items-center justify-between text-[11px] bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-200 px-2 py-1.5 rounded-lg border border-amber-200 dark:border-amber-800">
-                                <span>Arquivo removido: {lastRemovedEdital.fileName}</span>
-                                <button onClick={onUndoDeleteEditalFile} className="font-bold hover:underline">Desfazer</button>
-                            </div>
-                        )}
-
-                        <div className="flex flex-col gap-2">
-                            {editalFiles.length === 0 ? (
-                                <div className="text-[12px] text-slate-400 bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg p-3">
-                                    Nenhum edital enviado ainda.
-                                </div>
-                            ) : (
-                                editalFiles.map(file => {
-                                    const isSelected = selectedEditalId === file.id;
-                                    const isEditing = editingEditalId === file.id;
-                                    const sizeMb = (file.sizeBytes / 1024 / 1024).toFixed(1);
-                                    return (
-                                        <div key={file.id} className={`p-2 rounded-lg border ${isSelected ? 'border-primary bg-primary/5' : 'border-slate-200 dark:border-slate-800'} hover:border-primary/60 transition-colors`}> 
-                                            {isEditing ? (
-                                                <div className="flex items-center gap-2">
-                                                    <input
-                                                        autoFocus
-                                                        value={editingEditalName}
-                                                        onChange={(e) => setEditingEditalName(e.target.value)}
-                                                        className="flex-1 text-xs p-2 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-black/20 text-slate-900 dark:text-white focus:ring-1 focus:ring-primary outline-none"
-                                                    />
-                                                    <button onClick={saveRenameEdital} className="p-1.5 bg-green-500 text-white rounded hover:bg-green-600" title="Salvar nome"><span className="material-symbols-outlined text-[16px]">check</span></button>
-                                                    <button onClick={() => setEditingEditalId(null)} className="p-1.5 bg-slate-200 dark:bg-slate-700 text-slate-600 dark:text-slate-200 rounded hover:bg-slate-300" title="Cancelar"><span className="material-symbols-outlined text-[16px]">close</span></button>
-                                                </div>
-                                            ) : (
-                                                <div className="flex items-center justify-between gap-2">
-                                                    <div className="flex items-center gap-2 overflow-hidden">
-                                                        <button onClick={() => setSelectedEditalId(file.id)} className={`size-8 rounded bg-${isSelected ? 'primary' : 'slate-100'} dark:bg-${isSelected ? 'primary/30' : 'slate-800'} flex items-center justify-center text-${isSelected ? 'white' : 'slate-600'} shadow-sm`} title="Visualizar">
-                                                            <span className="material-symbols-outlined text-[18px]">picture_as_pdf</span>
-                                                        </button>
-                                                        <div className="flex flex-col min-w-0">
-                                                            <span className="text-xs font-bold text-slate-800 dark:text-slate-100 truncate" title={file.fileName}>{file.fileName}</span>
-                                                            <span className="text-[10px] text-slate-500">{sizeMb} MB · {new Date(file.uploadedAt).toLocaleDateString()}</span>
-                                                        </div>
-                                                    </div>
-                                                    <div className="flex items-center gap-1 opacity-90">
-                                                        <button onClick={() => startRenameEdital(file)} className="p-1 text-slate-500 hover:text-primary hover:bg-slate-100 dark:hover:bg-slate-800 rounded" title="Renomear">
-                                                            <span className="material-symbols-outlined text-[16px]">edit</span>
-                                                        </button>
-                                                        <button onClick={() => onDeleteEditalFile(file.id)} className="p-1 text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 rounded" title="Remover">
-                                                            <span className="material-symbols-outlined text-[16px]">delete</span>
-                                                        </button>
-                                                    </div>
-                                                </div>
-                                            )}
-                                        </div>
-                                    );
-                                })
-                            )}
-                        </div>
-
-                        <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 overflow-hidden" role="region" aria-label="Visualizador de PDF do edital">
-                            {selectedEditalId ? (
-                                <div className="h-48 bg-white dark:bg-black/40">
-                                    <object data={selectedEdital?.dataUrl} type="application/pdf" className="w-full h-full">
-                                        <div className="p-4 text-xs text-slate-500">Seu navegador não exibiu o PDF. Baixe para ler.</div>
-                                    </object>
-                                </div>
-                            ) : (
-                                <div className="h-32 flex items-center justify-center text-[12px] text-slate-400">Selecione um edital para visualizar.</div>
-                            )}
-                        </div>
-                    </div>
                 </div>
                 <div className="px-2 pt-3 border-t border-slate-200 dark:border-slate-800 mt-3">
                     <button 

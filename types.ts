@@ -8,7 +8,8 @@ export enum Screen {
     ERROR_NOTEBOOK = 'ERROR_NOTEBOOK',
     SIMULATED_EXAMS = 'SIMULATED_EXAMS',
     SAVED_NOTES = 'SAVED_NOTES',
-    HISTORY = 'HISTORY' // Nova Tela
+    HISTORY = 'HISTORY', // Nova Tela
+    EDITAL = 'EDITAL'
 }
 
 export interface NavItem {
