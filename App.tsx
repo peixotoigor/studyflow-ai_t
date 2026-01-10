@@ -12,7 +12,7 @@ import { SimulatedExams } from './components/SimulatedExams';
 import { SavedNotes } from './components/SavedNotes'; 
 import { ProfileModal } from './components/ProfileModal';
 import { BottomNavigation } from './components/BottomNavigation';
-import { Screen, UserProfile, Subject, Topic, ErrorLog, StudyLog, StudyPlan, SimulatedExam, SavedNote, StudyModality, ImporterState } from './types';
+import { Screen, UserProfile, Subject, Topic, ErrorLog, StudyLog, StudyPlan, SimulatedExam, SavedNote, StudyModality, ImporterState, EditalFile } from './types';
 
 // Dados iniciais vazios
 const INITIAL_SUBJECTS: Subject[] = [];
@@ -174,10 +174,10 @@ function App() {
       return [];
   });
 
-  const currentPlanErrorLogs = errorLogs.filter(log => {
-      const subject = subjects.find(s => s.id === log.subjectId);
-      return subject ? subject.planId === currentPlanId : false;
-  });
+    const currentPlanErrorLogs = errorLogs.filter(log => {
+            const subject = subjects.find(s => s.id === log.subjectId);
+            return subject ? subject.planId === currentPlanId : false;
+    });
 
   const [simulatedExams, setSimulatedExams] = useState<SimulatedExam[]>(() => {
       try {
@@ -196,6 +196,18 @@ function App() {
       } catch(e) {}
       return [];
   });
+
+  const [editalFiles, setEditalFiles] = useState<EditalFile[]>(() => {
+      try {
+          const saved = safeGet('studyflow_edital_files');
+          if (saved) return JSON.parse(saved).map((f: any) => ({ ...f, uploadedAt: new Date(f.uploadedAt) }));
+      } catch(e) {}
+      return [];
+  });
+
+  const [lastRemovedEdital, setLastRemovedEdital] = useState<EditalFile | null>(null);
+
+  const currentPlanEditalFiles = editalFiles.filter(f => f.planId === currentPlanId);
 
   // STATE DO IMPORTADOR
   const [importerState, setImporterState] = useState<ImporterState>({
@@ -298,6 +310,10 @@ function App() {
               }, 
               simulatedExams,
               savedNotes,
+              editalFiles: editalFiles.map(f => ({
+                  ...f,
+                  uploadedAt: f.uploadedAt instanceof Date ? f.uploadedAt.toISOString() : f.uploadedAt
+              })),
               scheduleSettings: JSON.parse(safeGet('studyflow_schedule_settings') || '{}'),
               scheduleSelection: JSON.parse(safeGet('studyflow_schedule_selection') || '[]'),
               playerState: JSON.parse(safeGet('studyflow_player_state') || 'null'),
@@ -342,7 +358,7 @@ function App() {
       return () => {
           if (autoSaveTimeoutRef.current) clearTimeout(autoSaveTimeoutRef.current);
       };
-  }, [subjects, plans, errorLogs, simulatedExams, savedNotes, currentPlanId, user]); 
+  }, [subjects, plans, errorLogs, simulatedExams, savedNotes, currentPlanId, user, editalFiles]); 
 
   const handleUpdateUser = (updatedUser: UserProfile) => {
       setUser(updatedUser);
@@ -379,6 +395,7 @@ function App() {
             if (content.errors) setErrorLogs(content.errors.map((e: any) => ({ ...e, createdAt: new Date(e.createdAt) })));
             if (content.simulatedExams) setSimulatedExams(content.simulatedExams.map((e: any) => ({ ...e, date: new Date(e.date) })));
             if (content.savedNotes) setSavedNotes(content.savedNotes.map((n: any) => ({ ...n, createdAt: new Date(n.createdAt) })));
+            if (content.editalFiles) setEditalFiles(content.editalFiles.map((f: any) => ({ ...f, uploadedAt: new Date(f.uploadedAt) })));
             if (content.currentPlanId) setCurrentPlanId(content.currentPlanId);
             
             if (content.user) {
@@ -511,6 +528,7 @@ function App() {
   useEffect(() => { safeSet('studyflow_current_plan', currentPlanId); }, [currentPlanId]);
   useEffect(() => { safeSet('studyflow_simulated_exams', JSON.stringify(simulatedExams)); }, [simulatedExams]);
   useEffect(() => { safeSet('studyflow_saved_notes', JSON.stringify(savedNotes)); }, [savedNotes]);
+    useEffect(() => { safeSet('studyflow_edital_files', JSON.stringify(editalFiles)); }, [editalFiles]);
 
   useEffect(() => {
     const hasLocalVault = !!safeGet('studyflow_secure_vault');
@@ -546,6 +564,36 @@ function App() {
   const handleDeleteSimulatedExam = (id: string) => { if(window.confirm("Apagar?")) setSimulatedExams(prev => prev.filter(e => e.id !== id)); };
   const handleAddSavedNote = (content: string, sName: string, tName: string) => setSavedNotes(prev => [{ id: Date.now().toString(), content, subjectName: sName, topicName: tName, createdAt: new Date() }, ...prev]);
   const handleDeleteSavedNote = (id: string) => { if(window.confirm("Apagar?")) setSavedNotes(prev => prev.filter(n => n.id !== id)); };
+
+  const handleAddEditalFile = (file: Omit<EditalFile, 'id' | 'uploadedAt'> & { id?: string; uploadedAt?: Date }) => {
+      const payload: EditalFile = {
+          id: file.id || `edital-${Date.now()}`,
+          uploadedAt: file.uploadedAt || new Date(),
+          ...file
+      } as EditalFile;
+      setEditalFiles(prev => [payload, ...prev]);
+      setLastRemovedEdital(null);
+  };
+
+  const handleRenameEditalFile = (id: string, fileName: string) => {
+      const trimmed = fileName.trim();
+      if (!trimmed) return;
+      setEditalFiles(prev => prev.map(f => f.id === id ? { ...f, fileName: trimmed } : f));
+  };
+
+  const handleDeleteEditalFile = (id: string) => {
+      setEditalFiles(prev => {
+          const target = prev.find(f => f.id === id) || null;
+          if (target) setLastRemovedEdital(target);
+          return prev.filter(f => f.id !== id);
+      });
+  };
+
+  const handleUndoDeleteEditalFile = () => {
+      if (!lastRemovedEdital) return;
+      setEditalFiles(prev => [lastRemovedEdital, ...prev]);
+      setLastRemovedEdital(null);
+  };
   
   // Função para RESTAURAR e IMPORTAR (Atualizada para evitar duplicatas - Fix WSOD)
   const handleRestoreSubjects = (newSubjects: Subject[]) => {
@@ -795,7 +843,26 @@ function App() {
 
   return (
     <div className="flex h-screen w-full overflow-hidden bg-background-light dark:bg-background-dark text-text-primary-light dark:text-text-primary-dark">
-      <Sidebar currentScreen={currentScreen} onNavigate={setCurrentScreen} user={user} plans={plans} currentPlanId={currentPlanId} onSwitchPlan={setCurrentPlanId} onAddPlan={handleAddPlan} onDeletePlan={handleDeletePlan} onUpdateUser={setUser} onUpdatePlan={handleUpdatePlan} onOpenProfile={() => setIsProfileOpen(true)} onLock={handleLockVault} />
+            <Sidebar 
+                currentScreen={currentScreen} 
+                onNavigate={setCurrentScreen} 
+                user={user} 
+                plans={plans} 
+                currentPlanId={currentPlanId} 
+                onSwitchPlan={setCurrentPlanId} 
+                onAddPlan={handleAddPlan} 
+                onDeletePlan={handleDeletePlan} 
+                onUpdateUser={setUser} 
+                onUpdatePlan={handleUpdatePlan} 
+                onOpenProfile={() => setIsProfileOpen(true)} 
+                onLock={handleLockVault}
+                editalFiles={currentPlanEditalFiles}
+                onAddEditalFile={handleAddEditalFile}
+                onRenameEditalFile={handleRenameEditalFile}
+                onDeleteEditalFile={handleDeleteEditalFile}
+                onUndoDeleteEditalFile={handleUndoDeleteEditalFile}
+                lastRemovedEdital={lastRemovedEdital}
+            />
       
       <main className="flex-1 flex flex-col h-full overflow-hidden relative transition-colors duration-200">
         <header className="h-16 flex items-center justify-between px-6 border-b border-border-light dark:border-border-dark bg-card-light dark:bg-card-dark flex-shrink-0 transition-colors duration-200 z-20">

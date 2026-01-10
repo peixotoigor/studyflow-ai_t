@@ -81,6 +81,17 @@ export interface Subject {
     logs?: StudyLog[];
 }
 
+// Arquivos de edital vinculados a um plano
+export interface EditalFile {
+    id: string;
+    planId: string;
+    fileName: string; // Nome editável apresentado ao usuário
+    dataUrl: string; // Conteúdo base64 para visualização/offline
+    sizeBytes: number;
+    mimeType: string;
+    uploadedAt: Date;
+}
+
 export type SessionType = 'THEORY' | 'REVIEW';
 
 export interface ScheduleItem {
