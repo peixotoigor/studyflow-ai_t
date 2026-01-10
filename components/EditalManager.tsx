@@ -25,7 +25,6 @@ export const EditalManager: React.FC<EditalManagerProps> = ({ files, onUpload, o
       const reader = new FileReader();
       reader.onload = () => {
           onUpload({ id, planId: '', fileName: file.name, dataUrl: reader.result as string, sizeBytes: file.size, mimeType: file.type, uploadedAt: new Date() });
-          setSelectedId(id);
       };
       reader.readAsDataURL(file);
       e.target.value = '';
@@ -65,7 +64,7 @@ export const EditalManager: React.FC<EditalManagerProps> = ({ files, onUpload, o
         </div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-4 gap-4">
         <div className="lg:col-span-1 space-y-2">
           {files.length === 0 ? (
             <div className="text-sm text-slate-500 bg-slate-50 dark:bg-slate-800/40 border border-dashed border-slate-200 dark:border-slate-700 rounded-lg p-3">Nenhum edital enviado ainda.</div>
@@ -109,9 +108,9 @@ export const EditalManager: React.FC<EditalManagerProps> = ({ files, onUpload, o
           )}
         </div>
 
-        <div className="lg:col-span-2 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 min-h-[260px]" role="region" aria-label="Visualizador de PDF do edital">
+        <div className="lg:col-span-3 rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 min-h-[320px]" role="region" aria-label="Visualizador de PDF do edital">
           {selectedFile ? (
-            <div className="h-[420px] bg-white dark:bg-black/40">
+            <div className="h-[520px] bg-white dark:bg-black/40">
               <object data={selectedFile.dataUrl} type="application/pdf" className="w-full h-full">
                 <div className="p-4 text-xs text-slate-500">Seu navegador não exibiu o PDF. Baixe para ler.</div>
               </object>

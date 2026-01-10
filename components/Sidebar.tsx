@@ -382,18 +382,6 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             </button>
                         ))}
 
-                        {/* Acesso rápido ao Edital (posicionado logo após Importador) */}
-                        <button
-                            onClick={() => {
-                                editalSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                                if (selectedEditalId) setSelectedEditalId(selectedEditalId);
-                            }}
-                            className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all w-full text-left text-text-secondary-light dark:text-text-secondary-dark hover:bg-gray-100 dark:hover:bg-white/5 hover:text-text-primary-light dark:hover:text-text-primary-dark"
-                            aria-label="Ir para seção de edital e PDFs"
-                        >
-                            <span className="material-symbols-outlined text-[24px]">description</span>
-                            <p className="text-sm font-medium leading-normal">Edital (PDF)</p>
-                        </button>
                     </div>
 
                 </div>
