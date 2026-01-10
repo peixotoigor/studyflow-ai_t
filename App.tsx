@@ -207,6 +207,7 @@ function App() {
   });
 
   const [lastRemovedEdital, setLastRemovedEdital] = useState<EditalFile | null>(null);
+  const lastRemovedEditalTimeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const currentPlanEditalFiles = editalFiles.filter(f => f.planId === currentPlanId);
 
@@ -588,12 +589,22 @@ function App() {
           if (target) setLastRemovedEdital(target);
           return prev.filter(f => f.id !== id);
       });
+      // Reset 30s undo window
+      if (lastRemovedEditalTimeoutRef.current) clearTimeout(lastRemovedEditalTimeoutRef.current);
+      lastRemovedEditalTimeoutRef.current = setTimeout(() => {
+          setLastRemovedEdital(null);
+          lastRemovedEditalTimeoutRef.current = null;
+      }, 30000);
   };
 
   const handleUndoDeleteEditalFile = () => {
       if (!lastRemovedEdital) return;
       setEditalFiles(prev => [lastRemovedEdital, ...prev]);
       setLastRemovedEdital(null);
+      if (lastRemovedEditalTimeoutRef.current) {
+          clearTimeout(lastRemovedEditalTimeoutRef.current);
+          lastRemovedEditalTimeoutRef.current = null;
+      }
   };
   
   // Função para RESTAURAR e IMPORTAR (Atualizada para evitar duplicatas - Fix WSOD)
