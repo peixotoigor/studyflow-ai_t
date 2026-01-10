@@ -16,6 +16,14 @@ export const EditalManager: React.FC<EditalManagerProps> = ({ files, onUpload, o
   const [editingId, setEditingId] = useState<string | null>(null);
   const [editingName, setEditingName] = useState('');
 
+  // Clear selection if the file disappears (plan switch or delete)
+  React.useEffect(() => {
+    if (!selectedId) return;
+    if (!files.some(f => f.id === selectedId)) {
+      setSelectedId(null);
+    }
+  }, [files, selectedId]);
+
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
       const file = e.target.files?.[0];
       if (!file) return;
@@ -74,7 +82,14 @@ export const EditalManager: React.FC<EditalManagerProps> = ({ files, onUpload, o
               const isSelected = selectedId === f.id;
               const sizeMb = (f.sizeBytes / 1024 / 1024).toFixed(1);
               return (
-                <div key={f.id} className={`p-2 rounded-lg border ${isSelected ? 'border-primary bg-primary/5' : 'border-slate-200 dark:border-slate-800'} hover:border-primary/60 transition-colors`}>
+                <div 
+                  key={f.id} 
+                  className={`p-2 rounded-lg border ${isSelected ? 'border-primary bg-primary/5' : 'border-slate-200 dark:border-slate-800'} hover:border-primary/60 transition-colors cursor-pointer`} 
+                  onClick={() => setSelectedId(f.id)}
+                  role="button"
+                  tabIndex={0}
+                  onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setSelectedId(f.id); } }}
+                >
                   {isEditing ? (
                     <div className="flex items-center gap-2">
                       <input value={editingName} onChange={(e) => setEditingName(e.target.value)} className="flex-1 text-xs p-2 rounded border border-slate-300 dark:border-slate-700 bg-white dark:bg-black/20 text-slate-900 dark:text-white focus:ring-1 focus:ring-primary outline-none" />
@@ -84,7 +99,7 @@ export const EditalManager: React.FC<EditalManagerProps> = ({ files, onUpload, o
                   ) : (
                     <div className="flex items-center justify-between gap-2">
                       <div className="flex items-center gap-2 overflow-hidden">
-                        <button onClick={() => setSelectedId(f.id)} className={`size-8 rounded ${isSelected ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'} flex items-center justify-center shadow-sm`} title="Visualizar">
+                        <button onClick={(e) => { e.stopPropagation(); setSelectedId(f.id); }} className={`size-8 rounded ${isSelected ? 'bg-primary text-white' : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'} flex items-center justify-center shadow-sm`} title="Visualizar">
                           <span className="material-symbols-outlined text-[18px]">picture_as_pdf</span>
                         </button>
                         <div className="flex flex-col min-w-0">
