@@ -345,12 +345,35 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                     .slice(0, 5)
                     .join(', ') || 'Sem erros registrados';
 
+                // Acurácia por tópico (questões respondidas)
+                const topicStats: Record<string, { name: string; questions: number; correct: number }> = {};
+                (originalSubject?.logs || []).forEach(log => {
+                    const topicName = log.topicName || 'Sem tópico';
+                    if (!topicStats[topicName]) {
+                        topicStats[topicName] = { name: topicName, questions: 0, correct: 0 };
+                    }
+                    topicStats[topicName].questions += (log.questionsCount || 0);
+                    topicStats[topicName].correct += (log.correctCount || 0);
+                });
+
+                const topicBreakdown = Object.values(topicStats)
+                    .filter(t => t.questions > 0)
+                    .map(t => ({
+                        ...t,
+                        accuracy: Math.round((t.correct / t.questions) * 100)
+                    }))
+                    .sort((a, b) => b.questions - a.questions)
+                    .slice(0, 6)
+                    .map(t => `${t.name}: ${t.accuracy}% (${t.correct}/${t.questions} questões)`)
+                    .join('; ') || 'Sem questões registradas por tópico';
+
                 return {
                     Materia: s.name,
                     AcuraciaGeral: `${s.accuracy}% (Baseado em ${s.questions} questões)`,
                     Recencia: typeof s.daysSinceLastStudy === 'number' ? `${s.daysSinceLastStudy} dias sem ver` : 'Nunca estudado',
                     TopicosJaEstudados: completedTopics,
-                    TopicosComErros: problematicTopics
+                    TopicosComErros: problematicTopics,
+                    TopicosComAcuracia: topicBreakdown
                 };
             });
 
@@ -364,10 +387,11 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                 Para cada matéria, forneça uma análise de 1 frase justificando a prioridade.
                 
                 REGRAS DE OURO:
-                1. MENCIONE TÓPICOS ESPECÍFICOS se houver dados de erros. Ex: "Prioridade alta pois você errou questões de 'Crimes contra a Vida'..."
-                2. SE NÃO HOUVER ERROS, focado na Recência/Esquecimento. Ex: "Você estudou 'Atos Administrativos' mas faz 15 dias que não revisa."
-                3. USE O CONTEXTO: Se ele já estudou muito mas a acurácia é baixa, sugira que ele pode estar avançando sem consolidar.
-                4. FORMATO: HTML (<ul>, <li> com <strong> no nome da matéria).
+                1. MENCIONE TÓPICOS ESPECÍFICOS de 'TopicosComErros' e de 'TopicosComAcuracia'. Priorize tópicos com acurácia < 70% ou com muitas questões.
+                2. SE NÃO HOUVER ERROS, foque em recência/curva de esquecimento e nas lacunas de acurácia por tópico.
+                3. USE O CONTEXTO: Se há muita prática mas acurácia baixa, recomende revisão teórica; se acurácia estável mas tempo sem ver é alto, recomende revisão rápida.
+                4. FORMATO: HTML (<ul>, <li> com <strong> no nome da matéria) com frases curtas, tom direto para concurseiro.
+                5. Evite generalidades: cite pelo menos um tópico e a acurácia dele quando disponível.
 
                 Exemplo Ideal:
                 <ul>
