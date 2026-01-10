@@ -408,7 +408,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                         {[0, 50, 100].map(val => <line key={val} x1={paddingX} y1={getY(val)} x2={width - paddingX} y2={getY(val)} stroke="currentColor" className="text-slate-100 dark:text-slate-800" strokeWidth="1" />)}
                         <line x1={paddingX} y1={getY(80)} x2={width - paddingX} y2={getY(80)} stroke="currentColor" className="text-green-500/50" strokeDasharray="4,4" />
                         <polyline points={points} fill="none" stroke="currentColor" className="text-primary" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
-                        {data.historyData.map((d, i) => (<circle key={i} cx={getX(i)} cy={getY(d.accuracy)} r="4" className="fill-white stroke-primary stroke-2" />))}
+                        {data.historyData.map((d, i) => {
+                            const x = getX(i);
+                            const y = getY(d.accuracy);
+                            return (
+                                <g key={i}>
+                                    <circle cx={x} cy={y} r="4" className="fill-white stroke-primary stroke-2" />
+                                    <text x={x} y={y - 8} textAnchor="middle" className="fill-slate-500 dark:fill-slate-300 text-[10px] font-bold">
+                                        {d.accuracy}%
+                                    </text>
+                                </g>
+                            );
+                        })}
                     </svg>
                 </div>
             </div>
