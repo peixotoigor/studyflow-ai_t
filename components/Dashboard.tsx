@@ -407,6 +407,9 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                     <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-full overflow-visible">
                         {[0, 50, 100].map(val => <line key={val} x1={paddingX} y1={getY(val)} x2={width - paddingX} y2={getY(val)} stroke="currentColor" className="text-slate-100 dark:text-slate-800" strokeWidth="1" />)}
                         <line x1={paddingX} y1={getY(80)} x2={width - paddingX} y2={getY(80)} stroke="currentColor" className="text-green-500/50" strokeDasharray="4,4" />
+                        <text x={width - paddingX - 4} y={getY(80) - 6} textAnchor="end" className="fill-green-600 dark:fill-green-400 text-[10px] font-bold">
+                            80% ideal
+                        </text>
                         <polyline points={points} fill="none" stroke="currentColor" className="text-primary" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round" />
                         {data.historyData.map((d, i) => {
                             const x = getX(i);
