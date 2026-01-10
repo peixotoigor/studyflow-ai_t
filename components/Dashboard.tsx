@@ -455,10 +455,24 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
 
     // COMPONENTE: GRÁFICO CIRCULAR DE TEMPO POR DISCIPLINA
     const SubjectTimeChart = () => {
-        // Filtra disciplinas com tempo > 0 e ordena
-        const chartData = performanceBySubject
+        // Considera todas as disciplinas estudadas (ativas ou não) com qualquer tempo registrado
+        const timeBySubject = useMemo(() => {
+            return subjects.map(sub => {
+                const minutes = (sub.logs || []).reduce((acc, log) => acc + (log.durationMinutes || 0), 0);
+                return {
+                    id: sub.id,
+                    name: sub.name,
+                    color: sub.color || 'blue',
+                    minutes
+                };
+            });
+        }, [subjects]);
+
+        const chartData = timeBySubject
             .filter(s => s.minutes > 0)
             .sort((a, b) => b.minutes - a.minutes);
+
+        const chartTotalMinutes = chartData.reduce((acc, s) => acc + s.minutes, 0);
 
         // Geometria do Donut
         const size = 160;
@@ -466,6 +480,18 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
         const radius = 60;
         const circumference = 2 * Math.PI * radius;
         let cumulativePercent = 0;
+
+        if (chartTotalMinutes === 0) {
+            return (
+                <div className="bg-white dark:bg-card-dark rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm flex flex-col items-center justify-center text-center min-h-[200px]">
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-white w-full flex items-center gap-2 mb-3">
+                        <span className="material-symbols-outlined text-purple-500">pie_chart</span>
+                        Distribuição do Tempo
+                    </h4>
+                    <p className="text-xs text-slate-400">Ainda não há tempo registrado nas disciplinas.</p>
+                </div>
+            );
+        }
 
         return (
             <div className="bg-white dark:bg-card-dark rounded-xl border border-slate-200 dark:border-slate-800 p-6 shadow-sm flex flex-col items-center">
@@ -480,7 +506,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                         <circle cx={center} cy={center} r={radius} fill="transparent" stroke="currentColor" strokeWidth="20" className="text-slate-100 dark:text-slate-800" />
                         
                         {chartData.map((sub, i) => {
-                            const percent = sub.minutes / totalStudyMinutes;
+                            const percent = sub.minutes / chartTotalMinutes;
                             const dashArray = `${percent * circumference} ${circumference}`;
                             const offset = -cumulativePercent * circumference;
                             cumulativePercent += percent;
@@ -512,7 +538,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                     {/* Texto Central */}
                     <div className="absolute inset-0 flex flex-col items-center justify-center pointer-events-none">
                         <span className="text-2xl font-black text-slate-800 dark:text-white">
-                            {(totalStudyMinutes / 60).toFixed(1)}h
+                            {(chartTotalMinutes / 60).toFixed(1)}h
                         </span>
                         <span className="text-[10px] uppercase font-bold text-slate-400">Total</span>
                     </div>
@@ -532,7 +558,7 @@ export const Dashboard: React.FC<DashboardProps> = ({ onNavigate, user, subjects
                                     <div className={`size-2.5 rounded-full bg-${sub.color}-500 shrink-0`}></div>
                                     <span className="font-bold text-slate-700 dark:text-slate-300 truncate">{sub.name}</span>
                                 </div>
-                                <span className="font-mono text-slate-500">{sub.minutes}m ({Math.round((sub.minutes/totalStudyMinutes)*100)}%)</span>
+                                <span className="font-mono text-slate-500">{sub.minutes}m ({Math.round((sub.minutes/chartTotalMinutes)*100)}%)</span>
                             </div>
                         ))}
                     </div>
