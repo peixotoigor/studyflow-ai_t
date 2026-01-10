@@ -60,6 +60,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     const [editingEditalName, setEditingEditalName] = useState('');
 
     const fileInputRef = useRef<HTMLInputElement>(null);
+    const editalSectionRef = useRef<HTMLDivElement>(null);
 
     const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -197,7 +198,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
     return (
         <aside className="hidden md:flex flex-col w-64 h-full bg-card-light dark:bg-card-dark border-r border-border-light dark:border-border-dark flex-shrink-0 transition-colors duration-200">
             <div className="flex flex-col h-full p-4 justify-between">
-                <div className="flex flex-col gap-6">
+                        <div className="flex flex-col gap-6 overflow-y-auto custom-scrollbar pr-1">
                     {/* User Profile Header (Agora clicável para editar) */}
                     <button 
                         onClick={onOpenProfile}
@@ -379,10 +380,23 @@ export const Sidebar: React.FC<SidebarProps> = ({
                                 <p className="text-sm font-medium leading-normal">{item.label}</p>
                             </button>
                         ))}
+
+                        {/* Acesso rápido ao Edital (posicionado logo após Importador) */}
+                        <button
+                            onClick={() => {
+                                editalSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                                if (selectedEditalId) setSelectedEditalId(selectedEditalId);
+                            }}
+                            className="flex items-center gap-3 px-3 py-2.5 rounded-lg transition-all w-full text-left text-text-secondary-light dark:text-text-secondary-dark hover:bg-gray-100 dark:hover:bg-white/5 hover:text-text-primary-light dark:hover:text-text-primary-dark"
+                            aria-label="Ir para seção de edital e PDFs"
+                        >
+                            <span className="material-symbols-outlined text-[24px]">description</span>
+                            <p className="text-sm font-medium leading-normal">Edital (PDF)</p>
+                        </button>
                     </div>
 
                     {/* Bloco de Edital */}
-                    <div className="mt-2 p-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-card-dark shadow-sm flex flex-col gap-3">
+                    <div ref={editalSectionRef} className="mt-2 p-3 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-card-dark shadow-sm flex flex-col gap-3" aria-label="Seção de edital e leitor de PDF">
                         <div className="flex items-center justify-between gap-2">
                             <div className="flex items-center gap-2">
                                 <span className="material-symbols-outlined text-primary text-[20px]">description</span>
@@ -461,7 +475,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                             )}
                         </div>
 
-                        <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 overflow-hidden">
+                        <div className="rounded-lg border border-slate-200 dark:border-slate-800 bg-slate-50 dark:bg-slate-900/40 overflow-hidden" role="region" aria-label="Visualizador de PDF do edital">
                             {selectedEditalId ? (
                                 <div className="h-48 bg-white dark:bg-black/40">
                                     <object data={selectedEdital?.dataUrl} type="application/pdf" className="w-full h-full">
@@ -474,10 +488,10 @@ export const Sidebar: React.FC<SidebarProps> = ({
                         </div>
                     </div>
                 </div>
-                <div className="px-2">
+                <div className="px-2 pt-3 border-t border-slate-200 dark:border-slate-800 mt-3">
                     <button 
                         onClick={onLock}
-                        className="flex items-center gap-3 px-3 py-2 w-full text-left rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 transition-all group"
+                        className="flex items-center gap-3 px-3 py-2 w-full text-left rounded-lg text-red-500 hover:bg-red-50 dark:hover:bg-red-900/10 transition-all group focus:outline-none focus:ring-2 focus:ring-red-300 dark:focus:ring-red-700"
                     >
                         <span className="material-symbols-outlined text-[24px]">logout</span>
                         <p className="text-sm font-medium leading-normal">Sair</p>
